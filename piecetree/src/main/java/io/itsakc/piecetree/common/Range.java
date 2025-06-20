@@ -1,0 +1,76 @@
+/*
+ *  @date   : 2025/06/20
+ *  @author : itsakc.me (itsakc.me@gmail.com)
+ *  https://github.com/itsakc-me/piecetree
+ */
+/*
+ MIT License
+
+ Copyright (c) 2025 itsakc.me (itsakc.me@gmail.com)
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+ */
+
+package io.itsakc.piecetree.common;
+
+/**
+ * Represents a text range within the document using start and end positions.
+ * Used for operations like selection, editing, or search match highlighting.
+ *
+ * @since 1.0
+ * @author <a href="https://github.com/itsakc-me">@itsakc.me</a>
+ */
+public class Range {
+    /** The starting position of the range. */
+    public final Position startPosition;
+
+    /** The ending position of the range. */
+    public final Position endPosition;
+
+    /**
+     * Constructs a range from a start position to an end position.
+     *
+     * @param startPosition The starting position.
+     * @param endPosition   The ending position.
+     */
+    public Range(Position startPosition, Position endPosition) {
+        this.startPosition = startPosition;
+        this.endPosition = endPosition;
+    }
+
+    @Override
+    public String toString() {
+        return "[" + startPosition.toString() + " -> " + endPosition.toString() + "]";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Range range = (Range) o;
+        return startPosition.equals(range.startPosition) && endPosition.equals(range.endPosition);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = startPosition.hashCode();
+        result = 31 * result + endPosition.hashCode();
+        return result;
+    }
+}

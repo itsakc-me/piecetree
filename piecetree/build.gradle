@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'io.itsakc.piecetree'
+    compileSdk 35
+    
+    defaultConfig {
+        minSdk 24
+        targetSdk 34
+
+        vectorDrawables {
+            useSupportLibrary true
+        }
+    }
+    
+    signingConfigs {
+        release {
+            storeFile file("../key-piecetree.keystore")
+            storePassword "itspass"
+            keyAlias "itskey"
+            keyPassword "itspass"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+        
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        viewBinding true
+        buildConfig true
+    }
+}
+
+dependencies {
+    implementation 'androidx.annotation:annotation-jvm:1.9.1'
+}
