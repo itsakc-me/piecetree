@@ -29,6 +29,9 @@
 
 package io.itsakc.piecetree.common;
 
+import io.itsakc.piecetree.BufferManager;
+import io.itsakc.piecetree.RedBlackTree;
+
 /**
  * A snapshot of the piece tree at a point in time.
  * Used for history, copy-paste, or undo/redo mechanisms.
@@ -37,11 +40,11 @@ package io.itsakc.piecetree.common;
  * @author <a href="https://github.com/itsakc-me">@itsakc.me</a>
  */
 public class PieceTreeSnapshot {
-    /** Full textual content at the snapshot point. */
-    public String content;
+    /** BufferManager containing the document content. */
+    public BufferManager bufferManager;
 
-    /** Total number of lines in the snapshot. */
-    public int lineCount;
+    /** RedBlackTree containing the nodes. */
+    public RedBlackTree tree;
 
     /** End-of-line format used in the snapshot (e.g., "\n", "\r\n"). */
     public String eol;
@@ -49,13 +52,13 @@ public class PieceTreeSnapshot {
     /**
      * Constructs a snapshot of the current state.
      *
-     * @param content   The full content string.
-     * @param lineCount Number of lines in the document.
-     * @param eol       EOL character(s) used.
+     * @param bufferManager BufferManager containing the document content.
+     * @param tree          RedBlackTree containing the nodes.
+     * @param eol           EOL character(s) used.
      */
-    public PieceTreeSnapshot(String content, int lineCount, String eol) {
-        this.content = content;
-        this.lineCount = lineCount;
+    public PieceTreeSnapshot(BufferManager bufferManager, RedBlackTree tree, String eol) {
+        this.bufferManager = bufferManager;
+        this.tree = tree;
         this.eol = eol;
     }
 }

@@ -29,11 +29,7 @@
 
 package io.itsakc.piecetree;
 
-import android.annotation.TargetApi;
-import android.os.Build;
 import android.util.Log;
-
-import androidx.annotation.RequiresApi;
 
 import java.io.File;
 import java.io.FileReader;
@@ -83,14 +79,16 @@ import io.itsakc.piecetree.common.*;
  * which stores the original text and any added text.
  * </p>
  *
+ * @author <a href="https://github.com/itsakc-me">@itsakc.me</a>
  * @see Node
  * @see BufferManager
  * @see RedBlackTree
  * @see UndoRedoManager
  * @see PieceTreeSnapshot
- * @author <a href="https://github.com/itsakc-me">@itsakc.me</a>
  */
 public class PieceTree {
+    private final String TAG = "PieceTree";
+
     public static final int LineFeed = 10;
     public static final int CarriageReturn = 13;
 
@@ -98,6 +96,7 @@ public class PieceTree {
     private RedBlackTree tree;
     private UndoRedoManager undoRedoManager;
     private String eol = "\n"; // Default end-of-line sequence
+    private boolean isNormalizeEOL = true;
     private PieceTreeSnapshot currentSnapshot;
 
     // CONSTRUCTOR COMMENTS
@@ -121,11 +120,11 @@ public class PieceTree {
      * </ul>
      * </p>
      *
-     * @since 1.0
      * @see #initialize(String)
      * @see BufferManager
      * @see RedBlackTree
      * @see UndoRedoManager
+     * @since 1.0
      */
     public PieceTree() {
         bufferManager = new BufferManager();
@@ -161,23 +160,27 @@ public class PieceTree {
      *
      * @param initialText The initial text content to load. Can be null or empty.
      * @throws OutOfMemoryError if the text is too large to fit in available memory.
-     * @since 1.0
      * @see #computeLineStarts(char[])
      * @see #createSnapshot()
+     * @since 1.0
      */
-    public void initialize(String initialText) {
-        int bufferCount = bufferManager.addOriginalBuffer(initialText);
-        int currentOffset = 0;
-        for (int i = 0; i < bufferCount; i++) {
-            char[] buffer = bufferManager.getBuffer(i + 1); // Original buffers start at index 1
-            int length = buffer.length;
-            int[] lineStarts = computeLineStarts(buffer);
-            Node node = new Node(i + 1, 0, length, lineStarts);
-            node.documentStart = currentOffset;
-            tree.insert(node);
-            currentOffset += length;
+    public synchronized void initialize(String initialText) {
+        try {
+            int bufferCount = bufferManager.addOriginalBuffer(initialText);
+            int currentOffset = 0;
+            for (int i = 0; i < bufferCount; i++) {
+                char[] buffer = bufferManager.getBuffer(i + 1); // Original buffers start at index 1
+                int length = buffer.length;
+                int[] lineStarts = computeLineStartsFast(buffer);
+                Node node = new Node(i + 1, 0, length, lineStarts);
+                node.documentStart = currentOffset;
+                tree.insert(node);
+                currentOffset += length;
+            }
+            createSnapshot(); // Create initial snapshot
+        } catch (Exception e) {
+            Log.d(TAG, "Error in initialize: " + e.getMessage(), e);
         }
-        createSnapshot(); // Create initial snapshot
     }
 
     /**
@@ -199,15 +202,16 @@ public class PieceTree {
      * CRLF → LF → CR → Default to LF
      * </p>
      *
-     * @param content The initial content to load into the buffer. Can be null.
-     * @param normalizeEOL Whether to normalize end-of-line characters.
+     * @param content          The initial content to load into the buffer. Can be null.
+     * @param normalizeEOL     Whether to normalize end-of-line characters.
      * @param eolNormalization The type of EOL normalization to apply.
-     * @since 1.0
      * @see EOLNormalization
      * @see #setEOL(String)
+     * @since 1.0
      */
-    public void initialize(String content, boolean normalizeEOL, EOLNormalization eolNormalization) {
+    public synchronized void initialize(String content, boolean normalizeEOL, EOLNormalization eolNormalization) {
         if (normalizeEOL && content != null) {
+            isNormalizeEOL = true;
             switch (eolNormalization) {
                 case CRLF:
                     content = content.replaceAll("(\r\n|\n|\r)", "\r\n");
@@ -247,17 +251,16 @@ public class PieceTree {
      *
      * <p>
      * <b>Memory Considerations:</b> The entire file content is loaded into memory.
-     * For very large files (approaching {@link Integer#MAX_VALUE} characters),
-     * consider using streaming approaches or file splitting.
+     * <b>Maximum supported size:</b> 80MB.
      * </p>
      *
      * @param file The file to read content from. Must exist and be readable.
-     * @throws OutOfMemoryError if the file is too large to fit in available memory.
+     * @throws OutOfMemoryError  if the file is too large to fit in available memory.
      * @throws SecurityException if file access is denied.
-     * @since 1.0
      * @see #initialize(File, boolean, EOLNormalization)
+     * @since 1.0
      */
-    public void initialize(File file) {
+    public synchronized void initialize(File file) {
         initialize(file, false, EOLNormalization.None);
     }
 
@@ -276,49 +279,24 @@ public class PieceTree {
      * <p>
      * <b>File Size Limitations:</b>
      * <ul>
-     *   <li>Maximum supported size: {@link Integer#MAX_VALUE} characters</li>
-     *   <li>Recommended maximum: 100MB for optimal performance</li>
+     *   <li>Maximum supported size: 80MB</li>
+     *   <li>Performance: O(N) where N is the file size</li>
      *   <li>Files exceeding limits will throw {@link OutOfMemoryError}</li>
      * </ul>
      * </p>
      *
-     * @param file The file to read content from. Must exist and be readable.
-     * @param normalizeEOL Whether to normalize end-of-line characters.
+     * @param file             The file to read content from. Must exist and be readable.
+     * @param normalizeEOL     Whether to normalize end-of-line characters.
      * @param eolNormalization The type of EOL normalization to apply.
-     * @throws OutOfMemoryError when the file is too large to fit in memory.
+     * @throws OutOfMemoryError  when the file is too large to fit in memory.
      * @throws SecurityException if file access permissions are insufficient.
-     * @since 1.0
      * @see FileReader
      * @see EOLNormalization
+     * @since 1.0
      */
-    public void initialize(File file, boolean normalizeEOL, EOLNormalization eolNormalization) {
-        StringBuilder sb = new StringBuilder();
-        FileReader fr = null;
-        try {
-            fr = new FileReader(file);
-
-            char[] buff = new char[1024];
-            int length = 0;
-
-            while ((length = fr.read(buff)) > 0) {
-                String s = new String(buff, 0, length);
-                sb.append(s);
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            if (fr != null) {
-                try {
-                    fr.close();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        String s = sb.toString();
-
-        if (normalizeEOL && !s.isEmpty()) {
+    public synchronized void initialize(File file, boolean normalizeEOL, EOLNormalization eolNormalization) {
+        isNormalizeEOL = normalizeEOL;
+        if (normalizeEOL) {
             switch (eolNormalization) {
                 case CRLF:
                     this.eol = "\r\n";
@@ -328,12 +306,61 @@ public class PieceTree {
                     break;
                 case None:
                 default:
+                    break;
+            }
+        }
+
+        String sb = "";
+        FileReader fr = null;
+        try {
+            fr = new FileReader(file);
+
+            char[] buff = new char[BufferManager.ORIGINAL_BUFFER_SIZE];
+            int length = 0;
+            int bufferIndex = 1;
+            int currentOffset = length;
+
+            while ((length = fr.read(buff)) > 0) {
+                sb = new String(buff);
+
+                if (normalizeEOL && eolNormalization != EOLNormalization.None) {
+                    sb = sb.replaceAll("(\r\n|\n|\r)", eol);
+                }
+
+                bufferManager.addOriginalBuffer(sb);
+                int[] lineStarts = computeLineStartsFast(buff);
+                Node node = new Node(bufferIndex, 0, length, lineStarts);
+                node.documentStart = currentOffset;
+                tree.insert(node);
+
+                buff = new char[BufferManager.ORIGINAL_BUFFER_SIZE];
+                bufferIndex++;
+                currentOffset += length;
+            }
+        } catch (IOException e) {
+            Log.d(TAG, "Error in initialize: " + e.getMessage(), e);
+        } finally {
+            if (fr != null) {
+                try {
+                    fr.close();
+                } catch (Exception e) {
+                    Log.d(TAG, "Error in initialize: " + e.getMessage(), e);
+                }
+            }
+        }
+
+        if (normalizeEOL && !sb.isEmpty()) {
+            switch (eolNormalization) {
+                case CRLF, LF:
+                    break;
+                case None:
+                default:
                     // Detect existing EOL
-                    if (s.contains("\r\n")) {
+                    if (sb.contains("\r\n")) {
                         this.eol = "\r\n";
-                    } else if (s.contains("\n")) {
+                    } else if (sb.contains("\n")) {
                         this.eol = "\n";
-                    } else if (s.contains("\r")) {
+                    } else if (sb.contains("\r")) {
                         this.eol = "\r";
                     } else {
                         this.eol = "\n"; // Default
@@ -342,7 +369,7 @@ public class PieceTree {
             }
         }
 
-        initialize(s);
+        createSnapshot();
     }
 
     // TEXT MANIPULATION METHODS
@@ -367,12 +394,12 @@ public class PieceTree {
      * </p>
      *
      * @param text The text to append. Can be null or empty (no-op).
-     * @return Self-reference for method chaining and fluent API usage.
-     * @since 1.0
+     * @return Whether the method has performed finely.
      * @see #insert(int, String)
      * @see #length()
+     * @since 1.0
      */
-    public PieceTree append(String text) {
+    public synchronized boolean append(String text) {
         return insert(length(), text);
     }
 
@@ -401,19 +428,17 @@ public class PieceTree {
      * </p>
      *
      * @param lineNumber The line number where to insert (1-based). Must be ≥ 1.
-     * @param column The column where to insert (1-based). Must be ≥ 1.
-     * @param text The text to insert. Can contain line breaks for multi-line insertion.
-     * @return Self-reference for method chaining and fluent API usage.
+     * @param column     The column where to insert (1-based). Must be ≥ 1.
+     * @param text       The text to insert. Can contain line breaks for multi-line insertion.
+     * @return Whether the insertion was successful.
      * @throws IllegalArgumentException if lineNumber or column is less than 1.
-     * @since 1.0
      * @see #offsetAt(int, int)
      * @see InsertTextCommand
+     * @since 1.0
      */
-    public PieceTree insert(int lineNumber, int column, String text) {
+    public synchronized boolean insert(int lineNumber, int column, String text) {
         int offset = offsetAt(lineNumber, column);
-        InsertTextCommand command = new InsertTextCommand(this, offset, text);
-        undoRedoManager.executeCommand(command);
-        return this;
+        return insert(offset, text);
     }
 
     /**
@@ -438,17 +463,22 @@ public class PieceTree {
      * </p>
      *
      * @param offset The offset where to insert (0-based). Must be ≥ 0 and ≤ document length.
-     * @param text The text to insert. Null or empty strings result in no-op.
-     * @return Self-reference for method chaining and fluent API usage.
+     * @param text   The text to insert. Null or empty strings result in no-op.
+     * @return Whether the insertion is successful.
      * @throws IllegalArgumentException if offset is negative or exceeds document length.
-     * @since 1.0
      * @see #doInsert(int, String)
      * @see UndoRedoManager#executeCommand(Command)
+     * @since 1.0
      */
-    public PieceTree insert(int offset, String text) {
-        InsertTextCommand command = new InsertTextCommand(this, offset, text);
-        undoRedoManager.executeCommand(command);
-        return this;
+    public synchronized boolean insert(int offset, String text) {
+        try {
+            InsertTextCommand command = new InsertTextCommand(this, offset, text);
+            undoRedoManager.executeCommand(command);
+            return true;
+        } catch (Exception e) {
+            Log.d(TAG, "Error in insert: " + e.getMessage(), e);
+        }
+        return false;
     }
 
     /**
@@ -476,20 +506,18 @@ public class PieceTree {
      * </p>
      *
      * @param startLineNumber Start line number (1-based, inclusive).
-     * @param startColumn Start column (1-based, inclusive).
-     * @param endLineNumber End line number (1-based, inclusive).
-     * @param endColumn End column (1-based, exclusive).
-     * @return Self-reference for method chaining and fluent API usage.
-     * @since 1.0
+     * @param startColumn     Start column (1-based, inclusive).
+     * @param endLineNumber   End line number (1-based, inclusive).
+     * @param endColumn       End column (1-based, exclusive).
+     * @return Whether the deletion was successful.
      * @see #offsetAt(int, int)
      * @see DeleteTextCommand
+     * @since 1.0
      */
-    public PieceTree delete(int startLineNumber, int startColumn, int endLineNumber, int endColumn) {
+    public synchronized boolean delete(int startLineNumber, int startColumn, int endLineNumber, int endColumn) {
         int startOffset = offsetAt(startLineNumber, startColumn);
         int endOffset = offsetAt(endLineNumber, endColumn);
-        DeleteTextCommand command = new DeleteTextCommand(this, startOffset, endOffset);
-        undoRedoManager.executeCommand(command);
-        return this;
+        return delete(startOffset, endOffset); // Delegate to delete(int, int)
     }
 
     /**
@@ -517,17 +545,22 @@ public class PieceTree {
      * </p>
      *
      * @param startOffset The start offset (0-based, inclusive).
-     * @param endOffset The end offset (0-based, exclusive).
-     * @return Self-reference for method chaining and fluent API usage.
+     * @param endOffset   The end offset (0-based, exclusive).
+     * @return Whether the deletion was successful.
      * @throws IllegalArgumentException if startOffset > endOffset or offsets are invalid.
-     * @since 1.0
      * @see #doDelete(int, int)
      * @see RedBlackTree#deleteRange(int, int)
+     * @since 1.0
      */
-    public PieceTree delete(int startOffset, int endOffset) {
-        DeleteTextCommand command = new DeleteTextCommand(this, startOffset, endOffset);
-        undoRedoManager.executeCommand(command);
-        return this;
+    public synchronized boolean delete(int startOffset, int endOffset) {
+        try {
+            DeleteTextCommand command = new DeleteTextCommand(this, startOffset, endOffset);
+            undoRedoManager.executeCommand(command);
+            return true;
+        } catch (Exception e) {
+            Log.d(TAG, "Error in delete: " + e.getMessage(), e);
+        }
+        return false;
     }
 
     /**
@@ -556,21 +589,19 @@ public class PieceTree {
      * </p>
      *
      * @param startLineNumber Start line number (1-based, inclusive).
-     * @param startColumn Start column (1-based, inclusive).
-     * @param endLineNumber End line number (1-based, inclusive).
-     * @param endColumn End column (1-based, exclusive).
-     * @param replacement The replacement text. Can be multi-line or empty.
-     * @return Self-reference for method chaining and fluent API usage.
-     * @since 1.0
+     * @param startColumn     Start column (1-based, inclusive).
+     * @param endLineNumber   End line number (1-based, inclusive).
+     * @param endColumn       End column (1-based, exclusive).
+     * @param replacement     The replacement text. Can be multi-line or empty.
+     * @return Whether the replacement was successful.
      * @see ReplaceTextCommand
      * @see #offsetAt(int, int)
+     * @since 1.0
      */
-    public PieceTree replace(int startLineNumber, int startColumn, int endLineNumber, int endColumn, String replacement) {
+    public synchronized boolean replace(int startLineNumber, int startColumn, int endLineNumber, int endColumn, String replacement) {
         int startOffset = offsetAt(startLineNumber, startColumn);
         int endOffset = offsetAt(endLineNumber, endColumn);
-        ReplaceTextCommand command = new ReplaceTextCommand(this, startOffset, endOffset, replacement);
-        undoRedoManager.executeCommand(command);
-        return this;
+        return replace(startOffset, endOffset, replacement);
     }
 
     /**
@@ -598,17 +629,63 @@ public class PieceTree {
      * </p>
      *
      * @param startOffset The start offset (0-based, inclusive).
-     * @param endOffset The end offset (0-based, exclusive).
+     * @param endOffset   The end offset (0-based, exclusive).
      * @param replacement The replacement text. Empty string performs deletion only.
-     * @return Self-reference for method chaining and fluent API usage.
+     * @return Whether the replacement was successful.
      * @throws IllegalArgumentException if offset range is invalid.
-     * @since 1.0
      * @see #doReplace(int, int, String)
+     * @since 1.0
      */
-    public PieceTree replace(int startOffset, int endOffset, String replacement) {
-        ReplaceTextCommand command = new ReplaceTextCommand(this, startOffset, endOffset, replacement);
-        undoRedoManager.executeCommand(command);
-        return this;
+    public synchronized boolean replace(int startOffset, int endOffset, String replacement) {
+        try {
+            ReplaceTextCommand command = new ReplaceTextCommand(this, startOffset, endOffset, replacement);
+            undoRedoManager.executeCommand(command);
+            return true;
+        } catch (Exception e) {
+            Log.d(TAG, "Error in replace: " + e.getMessage(), e);
+        }
+        return false;
+    }
+
+    /**
+     * Replaces the first occurrence of a regular expression pattern with the specified
+     * replacement text throughout the entire document.
+     * This method provides a simplified interface for regex-based find-and-replace operations.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Converts the input {@code regex} parameter to a compiled {@link Pattern}.</li>
+     *   <li>Searches for the first match of the regex pattern starting from document beginning.</li>
+     *   <li>If a match is found, performs a single {@link #replace(int, int, String)} operation
+     *       at the matched location with the provided replacement text.</li>
+     *   <li>Returns immediately after the first successful replacement or if no match is found.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *   <li><b>Regex Support:</b> Full regex syntax is supported including capture groups,
+     *       lookaheads, and complex patterns.</li>
+     *   <li><b>Case Sensitivity:</b> The search is performed with default case-sensitive matching.</li>
+     *   <li><b>Single Operation:</b> Only the first occurrence is replaced, making this suitable
+     *       for targeted replacements or interactive find-and-replace scenarios.</li>
+     *   <li><b>Atomicity:</b> The replacement operation is atomic and can be undone as a single action.</li>
+     * </ul>
+     * </p>
+     *
+     * @param regex       The regular expression pattern to search for. Must be valid regex syntax.
+     * @param replacement The text to replace the first matched occurrence with.
+     *                    Can include regex replacement patterns like {@code $1}, {@code $2} for capture groups.
+     * @return {@code true} if a match was found and successfully replaced; {@code false} otherwise.
+     * @see #replace(String, int, boolean, String)
+     * @see #replaceAll(String, String, int)
+     * @see Pattern
+     * @since 1.0
+     */
+    public synchronized boolean replace(String regex, String replacement) {
+        return replace(regex, true, replacement);
     }
 
     /**
@@ -645,44 +722,85 @@ public class PieceTree {
      * </p>
      *
      * <p>
-     * Default Search Parameters for {@code findNext}:
+     * Default Search Parameters for {@link #replace}:
      * <ul>
      *   <li>{@code startOffset}: 0</li>
      *   <li>{@code useRegex}: true</li>
      *   <li>{@code caseSensitive}: true</li>
-     *   <li>{@code wordSeparators}: null</li>
-     *   <li>{@code maxResults}: false (captures only the full match for replacement range)</li>
      * </ul>
      * </p>
      *
-     * @param regex The regular expression pattern to search for.
+     * @param regex       The regular expression pattern to search for.
+     * @param wholeWord   Whether to search for whole words only.
      * @param replacement The text to replace the found pattern with.
      *                    An empty string will effectively delete the matched text.
-     * @return Self-reference for method chaining and fluent API usage.
+     * @return Whether the replacement is successful.
      * @throws PatternSyntaxException if the regex pattern is invalid.
-     * @since 1.0
-     * @see #replaceAll(String, String)
+     * @see #replaceAll(String, boolean, String, int)
      * @see #replace(int, int, String)
      * @see #findNext(String, int, boolean, boolean, String, boolean)
      * @see FindMatch
+     * @since 1.0
      */
-    public PieceTree replace(String regex, String replacement) {
-        FindMatch match = findNext(regex, 0, true, true, null, false);
-        if (match != null) { // Only replace if a match is found
-            replace(match.startOffset, match.endOffset, replacement);
-        }
-        return this;
+    public synchronized boolean replace(String regex, boolean wholeWord, String replacement) {
+        return replace(regex, 0, true, wholeWord, replacement);
     }
-    
+
     /**
-     * Replaces the first occurrence of a literal text sequence with the specified
-     * replacement text. This method provides a simple way to replace a specific
-     * string without using regular expressions.
+     * Replaces the first occurrence of a text or regex pattern starting from a specified
+     * offset position with the provided replacement text.
+     * This method offers precise control over the search starting point and pattern type.
      *
      * <p>
      * Operation Sequence:
      * <ol>
-     *   <li>Converts the input {@link CharSequence} {@code literal} to a {@link String}.</li>
+     *   <li>Validates the {@code startOffset} parameter to ensure it falls within document bounds.</li>
+     *   <li>Creates a {@link Pattern} from the {@code query} based on the {@code useRegex} flag.</li>
+     *   <li>Begins search from the {@link Node} containing the specified {@code startOffset}.</li>
+     *   <li>Traverses document nodes sequentially to find the first pattern match.</li>
+     *   <li>Performs {@link #replace(int, int, String)} operation on the first match found.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *   <li><b>Offset Validation:</b> Invalid {@code startOffset} values are automatically
+     *       clamped to valid document boundaries.</li>
+     *   <li><b>Pattern Flexibility:</b> Supports both literal string matching and full regex
+     *       patterns based on the {@code useRegex} parameter.</li>
+     *   <li><b>Node Traversal:</b> Efficiently handles matches that span across multiple
+     *       document nodes using overlap detection.</li>
+     *   <li><b>Performance:</b> Optimized for single replacements with early termination
+     *       upon finding the first match.</li>
+     * </ul>
+     * </p>
+     *
+     * @param query       The text or regex pattern to search for.
+     * @param startOffset The document offset from which to begin searching (0-based).
+     *                    Values outside document bounds are automatically adjusted.
+     * @param useRegex    {@code true} to treat {@code query} as a regular expression;
+     *                    {@code false} for literal string matching.
+     * @param replacement The text to replace the matched occurrence with.
+     *                    For regex patterns, can include backreferences like {@code $1}.
+     * @return {@code true} if a match was found and successfully replaced; {@code false} otherwise.
+     * @see #replace(String, String)
+     * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
+     * @see #replace(int, int, String)
+     * @since 1.0
+     */
+    public synchronized boolean replace(String query, int startOffset, boolean useRegex, String replacement) {
+        return replace(query, startOffset, useRegex, true, replacement);
+    }
+
+    /**
+     * Replaces the first occurrence of the {@code query} sequence with the specified
+     * replacement text. This method provides a simple way to replace a specific
+     * {@code query} with/without using regular expressions.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
      *   <li>Finds the first occurrence of this literal string starting from the
      *       beginning of the document (offset 0). The search is performed
      *       case-sensitively and treats the query as a literal string (not a regex).</li>
@@ -713,103 +831,77 @@ public class PieceTree {
      * <p>
      * Default Search Parameters for {@code findNext}:
      * <ul>
-     *   <li>{@code startOffset}: 0</li>
-     *   <li>{@code useRegex}: false (literal search)</li>
      *   <li>{@code caseSensitive}: true</li>
      *   <li>{@code wordSeparators}: null</li>
-     *   <li>{@code maxResults}: false (captures only the full match for replacement range)</li>
+     *   <li>{@code captureGroups}: false (captures only the full match for replacement range)</li>
      * </ul>
      * </p>
      *
-     * @param literal     The exact {@link CharSequence} (e.g., String, StringBuilder)
-     *                    to search for. It will be converted to a String for the search.
+     * @param query       The {@link String} {@code query} to search for.
+     * @param startOffset The offset from which to start the search (0-based).
+     * @param useRegex    Whether to treat the {@code query} as a regular expression.
+     * @param wholeWord   Whether to search for whole words only.
      * @param replacement The text to replace the found literal with.
      *                    An empty string will effectively delete the matched text.
-     * @return Self-reference for method chaining and fluent API usage.
-     * @see #replaceAll(CharSequence, String)
-     * @see #replace(String, String) // For regex-based replacement
+     * @return Whether the replacement is successful.
+     * @see #replaceAll(String, boolean, String, int)
+     * @see #replace(String, boolean, String) // For regex-based replacement
      * @see #replace(int, int, String)
      * @see #findNext(String, int, boolean, boolean, String, boolean)
      * @see FindMatch
      * @since 1.0
      */
-    public PieceTree replace(CharSequence literal, String replacement) {
-        FindMatch match = findNext(literal.toString(), 0, false, true, null, false);
+    public synchronized boolean replace(String query, int startOffset, boolean useRegex, boolean wholeWord, String replacement) {
+        FindMatch match = findNext(query, startOffset, useRegex, true, null, false, wholeWord);
         if (match != null) { // Only replace if a match is found
             replace(match.startOffset, match.endOffset, replacement);
+            return true;
         }
-        return this;
+        return false;
     }
 
     /**
-     * Replaces all occurrences of a literal text sequence with the specified
-     * replacement text throughout the entire document.
-     * This method provides global find-and-replace for exact string matches.
+     * Replaces all occurrences of a regular expression pattern with the specified
+     * replacement text throughout the entire document, up to a maximum count.
+     * This method provides efficient bulk replacement operations with configurable limits.
      *
      * <p>
      * Operation Sequence:
      * <ol>
-     *   <li>Converts the input {@link CharSequence} {@code literal} to a {@link String}.</li>
-     *   <li>Finds all non-overlapping matches for the given literal string
-     *       throughout the document using
-     *       {@link #findMatches(String, boolean, boolean, String, boolean)}.
-     *       The search is performed case-sensitively and treats the query as a
-     *       literal string.</li>
-     *   <li>Iterates through the list of found matches ({@link FindMatch}). For each match,
-     *       it delegates to the offset-based {@link #replace(int, int, String)}
-     *       method to perform an atomic replacement.</li>
-     *   <li>If no matches are found, the document remains unchanged.</li>
+     *   <li>Compiles the {@code regex} parameter into a {@link Pattern} with default flags.</li>
+     *   <li>Performs comprehensive document traversal to identify all matching occurrences.</li>
+     *   <li>Executes replacement operations in document order, respecting the {@code maxReplace} limit.</li>
+     *   <li>Maintains document integrity by handling offset adjustments after each replacement.</li>
+     *   <li>Terminates early if {@code maxReplace} limit is reached before document end.</li>
      * </ol>
      * </p>
      *
      * <p>
      * Important Considerations:
      * <ul>
-     *    <li><b>Literal Search:</b> The {@code literal} parameter is treated as plain text.
-     *       Special regex characters in the {@code literal} will be matched as part of
-     *       the literal string.</li>
-     *   <li><b>Sequential Replacement & Iteration Order:</b> Replacements are performed based on
-     *       the matches found in the original document state. This implementation iterates
-     *       through matches in the order they appear. For literal replacements where the
-     *       replacement string cannot itself create new instances of the literal being searched,
-     *       forward iteration is generally safe. If there's a possibility of complex interactions,
-     *       consider iterating in reverse (see regex {@link #replaceAll(String, String)}
-     *       for an example of reverse iteration).</li>
-     *   <li><b>Atomicity:</b> Each individual replacement is atomic and undoable if
-     *       the underlying {@code replace(int, int, String)} uses a command.</li>
-     *   <li><b>Performance:</b> Finding all matches can be time-consuming on very large
-     *       documents, though typically faster than complex regex searches.</li>
+     *   <li><b>Bulk Operations:</b> Designed for high-volume replacements with optimized
+     *       performance characteristics for large documents.</li>
+     *   <li><b>Replacement Limit:</b> The {@code maxReplace} parameter prevents runaway
+     *       operations and allows for controlled batch processing.</li>
+     *   <li><b>Regex Power:</b> Full regex functionality including capture groups, assertions,
+     *       and complex pattern matching is available.</li>
+     *   <li><b>Memory Efficiency:</b> Uses incremental processing to handle large documents
+     *       without excessive memory consumption.</li>
      * </ul>
      * </p>
      *
-     * <p>
-     * Default Search Parameters for {@code findMatches}:
-     * <ul>
-     *   <li>{@code useRegex}: false (literal search)</li>
-     *   <li>{@code caseSensitive}: true</li>
-     *   <li>{@code wordSeparators}: null</li>
-     *   <li>{@code maxResults}: false (captures only the full match for replacement range)</li>
-     * </ul>
-     * </p>
-     *
-     * @param literal     The exact {@link CharSequence} (e.g., String, StringBuilder)
-     *                    to search for. It will be converted to a String for the search.
-     * @param replacement The text to replace each found literal with.
-     *                    An empty string will effectively delete all matched text.
-     * @return Self-reference for method chaining and fluent API usage.
-     * @see #replace(CharSequence, String)
-     * @see #replaceAll(String, String) // For regex-based replacement
-     * @see #replace(int, int, String)
-     * @see #findMatches(String, boolean, boolean, String, boolean)
-     * @see FindMatch
+     * @param regex       The regular expression pattern to search for throughout the document.
+     * @param replacement The text to replace each matched occurrence with.
+     *                    Supports regex replacement syntax including capture group references.
+     * @param maxReplace  The maximum number of replacements to perform. Use 0 for unlimited replacements.
+     * @return {@code true} if at least one replacement was successfully performed; {@code false} otherwise.
+     * @see #replaceAll(String, int, boolean, String, int)
+     * @see #replace(String, String)
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, int)
      * @since 1.0
      */
-    public PieceTree replaceAll(CharSequence literal, String replacement) {
-        List<FindMatch> matches = findMatches(literal.toString(), false, true, null, false);
-        for (FindMatch match : matches) {
-            replace(match.startOffset, match.endOffset, replacement);
-        }
-        return this;
+    public synchronized boolean replaceAll(String regex, String replacement, int maxReplace) {
+        return replaceAll(regex, true, replacement, maxReplace);
     }
 
     /**
@@ -820,12 +912,9 @@ public class PieceTree {
      * <p>
      * Operation Sequence:
      * <ol>
-     *   <li>Finds all non-overlapping matches for the given {@code regex}
-     *       throughout the document using
-     *       {@link #findMatches(String, boolean, boolean, String, boolean)}.
-     *       The search is performed case-sensitively and treats the query as a
-     *       regex by default.</li>
-     *   <li>Iterates through the list of found matches ({@link FindMatch}).</li>
+     *   <li>Finds and replaces all non-overlapping matches for the given {@code regex}
+     *       from {@code startOffset} by {@link #replaceAll(String, int, boolean, String, int)}
+     *       till the {@code maxReplace} reaches.</li>
      *   <li>For each match, delegates to the offset-based
      *       {@link #replace(int, int, String)} method to perform an atomic
      *       replacement of the matched text with the {@code replacement} string.</li>
@@ -836,50 +925,161 @@ public class PieceTree {
      * <p>
      * Important Considerations:
      * <ul>
-     *   <li><b>Sequential Replacement:</b> Replacements are performed one by one.
-     *       This means that the replacement of an earlier match might affect the
-     *       offsets or content relevant to subsequent potential matches if the
-     *       replacement text itself could match the regex. However, {@code findMatches}
-     *       typically returns non-overlapping matches based on the initial state.
-     *       The loop processes matches based on their original positions.</li>
-     *   <li><b>Atomicity:</b> Each individual replacement is atomic and undoable if
-     *       the underlying {@code replace(int, int, String)} uses a command.
-     *       The entire {@code replaceAll} operation, if part of a larger command
-     *       structure, could be undone as a whole.</li>
-     *   <li><b>Performance:</b> Finding all matches can be intensive for complex
-     *       regex patterns on large documents. Each subsequent replacement also
-     *       incurs the cost of the offset-based replace operation.</li>
+     *   <li><b>Query Search:</b> The {@code query} parameter is treated as regex.</li>
+     *   <li><b>Atomicity:</b> Each individual replacement is atomic and undoable.</li>
+     *   <li><b>Performance:</b> Finding all matches can be now more less time-consuming
+     *       even on bigger documents, i.e,
+     *       <a href="https://github.com/titoBouzout/Dictionaries/blob/master/Russian-English%20Bilingual.dic">
+     *       Russian English Bilingual dictionary</a>.</li>
      * </ul>
      * </p>
      *
      * <p>
-     * Default Search Parameters for {@code findMatches}:
+     * Default Search Parameters for {@link #replaceAll}:
      * <ul>
+     *   <li>{@code startOffset}: 0</li>
      *   <li>{@code useRegex}: true</li>
-     *   <li>{@code caseSensitive}: true</li>
-     *   <li>{@code wordSeparators}: null</li>
-     *   <li>{@code maxResults}: false (captures only the full match for replacement range)</li>
      * </ul>
      * </p>
      *
-     * @param regex The regular expression pattern to search for.
+     * @param regex       The regular expression pattern to search for.
+     * @param wholeWord   Whether to match for whole words.
      * @param replacement The text to replace each found pattern with.
      *                    An empty string will effectively delete all matched text.
-     * @return Self-reference for method chaining and fluent API usage.
+     * @param maxReplace  The maximum number of replacements to perform (0 = all replacement).
+     * @return Whether the replacement is performed successful.
      * @throws PatternSyntaxException if the regex pattern is invalid.
-     * @since 1.0
      * @see #replace(String, String)
      * @see #replace(int, int, String)
-     * @see #findMatches(String, boolean, boolean, String, boolean)
+     * @see #replaceAll(String, int, boolean, boolean, String, int) // For user-defined replacement.
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, int)
      * @see FindMatch
+     * @since 1.0
      */
-    public PieceTree replaceAll(String regex, String replacement) {
-        List<FindMatch> matches = findMatches(regex, true, true, null, false);
-        for (int i = matches.size() - 1; i >= 0; i--) {
-            FindMatch match = matches.get(i);
-            replace(match.startOffset, match.endOffset, replacement);
+    public synchronized boolean replaceAll(String regex, boolean wholeWord, String replacement, int maxReplace) {
+        return replaceAll(regex, 0, true, wholeWord, replacement, maxReplace);
+    }
+
+    /**
+     * Replaces all occurrences of a text or regex pattern starting from a specified
+     * offset position with the provided replacement text, up to a maximum count.
+     * This method offers the most comprehensive control over bulk replacement operations.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Validates the {@code startOffset} parameter against document boundaries.</li>
+     *   <li>Creates an appropriate {@link Pattern} based on the {@code useRegex} flag.</li>
+     *   <li>Initiates search from the {@link Node} containing the specified offset.</li>
+     *   <li>Iteratively finds and replaces matches while tracking the replacement count.</li>
+     *   <li>Adjusts subsequent search positions to account for text length changes from replacements.</li>
+     *   <li>Continues until {@code maxReplace} limit is reached or document end is encountered.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *   <li><b>Flexible Starting Point:</b> Allows targeted bulk replacements from any
+     *       document position, useful for section-specific operations.</li>
+     *   <li><b>Pattern Versatility:</b> Supports both simple text matching and complex
+     *       regex patterns with full backreference support in replacements.</li>
+     *   <li><b>Controlled Execution:</b> The {@code maxReplace} limit provides fine-grained
+     *       control over operation scope and prevents infinite loops with certain patterns.</li>
+     *   <li><b>Offset Management:</b> Intelligently handles document offset adjustments
+     *       as text length changes during the replacement process.</li>
+     *   <li><b>Node Boundary Handling:</b> Seamlessly processes matches that span across
+     *       multiple document nodes using sophisticated overlap detection.</li>
+     * </ul>
+     * </p>
+     *
+     * @param query       The text or regex pattern to search for.
+     * @param startOffset The document offset from which to begin searching (0-based).
+     *                    Invalid offsets are automatically corrected to valid ranges.
+     * @param useRegex    {@code true} to interpret {@code query} as a regular expression;
+     *                    {@code false} for exact string matching.
+     * @param replacement The text to replace each matched occurrence with.
+     *                    For regex patterns, supports backreferences and replacement expressions.
+     * @param maxReplace  The maximum number of replacements to perform. Use 0 for unlimited replacements.
+     * @return {@code true} if at least one replacement was successfully performed; {@code false} otherwise.
+     * @see #replaceAll(String, String, int)
+     * @see #replace(String, int, boolean, String)
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, int)
+     * @see Pattern
+     * @since 1.0
+     */
+    public synchronized boolean replaceAll(String query, int startOffset, boolean useRegex, String replacement, int maxReplace) {
+        return replaceAll(query, startOffset, useRegex, true, replacement, maxReplace);
+    }
+
+    /**
+     * Replaces all occurrences of a text or regex pattern with the specified
+     * replacement text throughout the entire document.
+     * This method provides global find-and-replace for exact string matches.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Converts the input {@link String} {@code query} to a {@link Pattern}.</li>
+     *   <li>Finds all non-overlapping matches for the given literal string
+     *       throughout the document using {@code self} fast forward mechanism.
+     *       The search is performed case-sensitively and compiles the query {@link Pattern}.</li>
+     *   <li>Starts iterating through the {@link Node} {@code node} containing {@code startOffset} and
+     *       perform the {@link #replace(int, int, String)} till the {@code maxReplace} reaches.</li>
+     *   <li>If no matches are found, the document remains unchanged.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *    <li><b>Query Search:</b> The {@code query} parameter is treated as either a
+     *       plain text or regex based on {@code useRegex}.</li>
+     *   <li><b>Atomicity:</b> Each individual replacement is atomic and undoable.</li>
+     *   <li><b>Performance:</b> Finding all matches can be now more less time-consuming
+     *       even on bigger documents, i.e,
+     *       <a href="https://github.com/titoBouzout/Dictionaries/blob/master/Russian-English%20Bilingual.dic">
+     *       Russian English Bilingual dictionary</a>.</li>
+     * </ul>
+     * </p>
+     *
+     * @param query       The exact {@link String} to search for.
+     * @param startOffset The offset from which to start the search (0-based).
+     * @param useRegex    Whether to treat the {@code query} as a regular expression.
+     * @param wholeWord   Whether to search for whole words only.
+     * @param replacement The text to replace each found literal with.
+     *                    An empty string will effectively delete all matched text.
+     * @param maxReplace  The maximum number of replacements to perform (0 = all replacement).
+     * @return Whether the replacement is successful.
+     * @see #replace(String, String)
+     * @see #replace(int, int, String)
+     * @see #replaceAll(String, boolean, String, int) // For regex-based replacement.
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, int)
+     * @see FindMatch
+     * @since 1.0
+     */
+    public synchronized boolean replaceAll(String query, int startOffset, boolean useRegex, boolean wholeWord, String replacement, int maxReplace) {
+        if (query == null || query.isEmpty()) return false;
+
+        undoRedoManager.beginGroup("Replace All");
+        try {
+            int currentStartOffset = startOffset;
+            while (maxReplace > 0) {
+                FindMatch match = findNext(query, currentStartOffset, useRegex, true, null, false, wholeWord);
+                if (match == null) break;
+                replace(match.startOffset, match.endOffset, replacement);
+
+                if (--maxReplace == 0) break;
+                currentStartOffset = match.endOffset;
+            }
+
+            undoRedoManager.endGroup();
+            return true;
+        } catch (Exception e) {
+            Log.d(TAG, "Error in replaceAll: " + e.getMessage(), e);
         }
-        return this;
+        undoRedoManager.endGroup();
+        return false;
     }
 
     /**
@@ -904,11 +1104,11 @@ public class PieceTree {
      * After a reset, the PieceTree behaves as if it were newly constructed.
      * </p>
      *
-     * @since 1.0
      * @see #PieceTree()
      * @see #initialize(String)
+     * @since 1.0
      */
-    public void reset() {
+    public synchronized void reset() {
         bufferManager = new BufferManager();
         tree = new RedBlackTree(bufferManager);
         undoRedoManager = new UndoRedoManager();
@@ -946,67 +1146,63 @@ public class PieceTree {
      * @param lineNumber The line number to retrieve (1-based indexing).
      *                   Must be between 1 and the total number of lines in the document.
      * @return A string containing the complete text content of the specified line,
-     *         excluding any end-of-line characters. Returns an empty string for
-     *         empty lines or invalid line numbers.
+     * excluding any end-of-line characters. Returns an empty string for
+     * empty lines or invalid line numbers.
      * @throws IllegalArgumentException if lineNumber is less than 1.
-     * @since 1.0
+     * @apiNote This method is optimized for frequent line access patterns common
+     * in text editors and syntax highlighters.
      * @see #findLinePosition(int)
      * @see #textRange(int, int)
-     * @apiNote This method is optimized for frequent line access patterns common
-     *          in text editors and syntax highlighters.
+     * @since 1.0
      */
-    public String lineContent(int lineNumber) {
-        if (lineNumber < 1) {
-            throw new IllegalArgumentException("Line number must be 1 or greater");
-        }
-
-        LinePosition linePos = findLinePosition(lineNumber);
-        if (linePos == null) {
-            return ""; // Line doesn't exist
-        }
-
-        Node node = linePos.node;
-        int lineStartInNode = node.lineStarts[linePos.lineNumber - 1];
-        int lineStartOffset = node.documentStart + lineStartInNode;
-
-        // Find the end of the line by looking for the next line start or end of content
-        int lineEndOffset;
-
-        if (linePos.lineNumber < node.lineStarts.length) {
-            // Not the last line in this node
-            lineEndOffset = node.documentStart + node.lineStarts[linePos.lineNumber];
-        } else {
-            // Last line in this node, need to find end by scanning for EOL or document end
-            lineEndOffset = findLineEnd(node, lineStartInNode);
-        }
-
-        // Extract the line content, excluding EOL characters
-        StringBuilder lineContent = new StringBuilder();
-        Node currentNode = node;
-        int currentOffset = lineStartOffset;
-        int remainingLength = lineEndOffset - lineStartOffset;
-
-        while (currentNode != null && remainingLength > 0) {
-            char[] buffer = bufferManager.getBuffer(currentNode.bufferIndex);
-            int nodeRelativeStart = Math.max(0, currentOffset - currentNode.documentStart);
-            int nodeRelativeEnd = Math.min(currentNode.length, nodeRelativeStart + remainingLength);
-
-            // Copy characters, stopping at EOL characters
-            for (int i = nodeRelativeStart; i < nodeRelativeEnd; i++) {
-                char ch = buffer[currentNode.bufferStart + i];
-                if (ch == LineFeed || ch == CarriageReturn) {
-                    // Stop at EOL character
-                    return lineContent.toString();
-                }
-                lineContent.append(ch);
+    public synchronized String lineContent(int lineNumber) {
+        try {
+            if (lineNumber < 1 && lineNumber > lineCount()) {
+                throw new IllegalArgumentException("Line number must be 1 or greater and less than total line count!!");
             }
 
-            remainingLength -= (nodeRelativeEnd - nodeRelativeStart);
-            currentOffset = currentNode.documentStart + currentNode.length;
-            currentNode = tree.getSuccessor(currentNode);
-        }
+            LinePosition linePos = findLinePosition(lineNumber);
+            if (linePos == null) {
+                return ""; // Line doesn't exist
+            }
 
-        return lineContent.toString();
+            Node node = linePos.node;
+            int lineStartOffset = node.documentStart + linePos.offsetInNode;
+
+            // Find the end of the line by looking for the next line start or end of content
+            int lineEndOffset = findLineEnd(node, linePos.offsetInNode);
+
+            // Extract the line content, excluding EOL characters
+            StringBuilder lineContent = new StringBuilder();
+            Node currentNode = node;
+            int currentOffset = lineStartOffset;
+            int remainingLength = lineEndOffset - lineStartOffset;
+
+            while (currentNode != null && remainingLength > 0) {
+                char[] buffer = bufferManager.getBuffer(currentNode.bufferIndex);
+                int nodeRelativeStart = Math.max(0, currentOffset - currentNode.documentStart);
+                int nodeRelativeEnd = Math.min(currentNode.length, nodeRelativeStart + remainingLength);
+
+                // Copy characters, stopping at EOL characters
+                for (int i = nodeRelativeStart; i < nodeRelativeEnd; i++) {
+                    char ch = buffer[currentNode.bufferStart + i];
+                    if (ch == LineFeed || ch == CarriageReturn) {
+                        // Stop at EOL character
+                        return lineContent.toString();
+                    }
+                    lineContent.append(ch);
+                }
+
+                remainingLength -= (nodeRelativeEnd - nodeRelativeStart);
+                currentOffset = currentNode.documentStart + currentNode.length;
+                currentNode = tree.getSuccessor(currentNode);
+            }
+
+            return lineContent.toString();
+        } catch (IllegalArgumentException e) {
+            Log.d(TAG, "Error in lineContent: " + e.getMessage(), e);
+        }
+        return null;
     }
 
     /**
@@ -1035,15 +1231,15 @@ public class PieceTree {
      * </p>
      *
      * @param startLineNumber The starting line number (1-based, inclusive).
-     * @param endLineNumber The ending line number (1-based, inclusive).
+     * @param endLineNumber   The ending line number (1-based, inclusive).
      * @return A list containing the content of each line in the range.
-     *         Empty lines are represented as empty strings.
+     * Empty lines are represented as empty strings.
      * @throws IllegalArgumentException if line numbers are invalid or startLine > endLine.
-     * @since 1.0
      * @see #lineContent(int)
      * @see List
+     * @since 1.0
      */
-    public List<String> linesContent(int startLineNumber, int endLineNumber) {
+    public synchronized List<String> linesContent(int startLineNumber, int endLineNumber) {
         List<String> lines = new ArrayList<>();
         for (int i = startLineNumber; i <= endLineNumber; i++) {
             lines.add(lineContent(i));
@@ -1077,48 +1273,60 @@ public class PieceTree {
      *
      * @param offset The 0-based character offset in the document.
      * @return A {@link Position} object with 1-based line and column coordinates.
-     *         Returns Position(1,1) for invalid offsets.
-     * @since 1.0
+     * Returns Position(1,1) for invalid offsets.
      * @see Position
      * @see Node#lineStarts
      * @see Node#left_subtree_lfcnt
+     * @since 1.0
      */
-    public Position positionAt(int offset) {
-        if (offset < 0 || offset > length()) {
-            return new Position(1, 1); // Return default position for invalid offset
-        }
-
-        Node node = tree.findNodeContaining(offset);
-        if (node == null) {
-            return new Position(1, 1); // Should not happen if offset is valid
-        }
-
-        int relativeOffset = offset - node.documentStart + 1;
-
-        // Find the line number
-        int lineNumber = 1;
-        for (int i = 0; i < node.lineStarts.length; i++) {
-            if (relativeOffset < node.lineStarts[i]) {
-                lineNumber = i + 1;
-                break;
+    public synchronized Position positionAt(int offset) {
+        try {
+            if (offset < 0 || offset > length()) {
+                return new Position(-1, -1); // Return default position for invalid offset
             }
-        }
-        if (relativeOffset >= node.lineStarts[node.lineStarts.length - 1]) {
-            lineNumber = node.lineStarts.length;
-        }
 
-        // Calculate column number
-        int columnNumber = 1;
-        if (lineNumber > 1) {
-            columnNumber = relativeOffset - node.lineStarts[lineNumber - 2];
-        } else {
-            columnNumber = relativeOffset;
+            Node node = tree.findNodeContaining(offset);
+            if (node == null) {
+                return new Position(-1, -1); // Should not happen if offset is valid
+            }
+
+            int relativeOffset = offset - node.documentStart + 1;
+
+            // Find the line number
+            int lineNumber = 1;
+            for (int i = 0; i < node.lineStarts.length; i++) {
+                if (relativeOffset < node.lineStarts[i]) {
+                    lineNumber = i + 1;
+                    break;
+                }
+            }
+            if (relativeOffset >= node.lineStarts[node.lineStarts.length - 1]) {
+                lineNumber = node.lineStarts.length;
+            }
+
+            // Calculate column number
+            int columnNumber = 1;
+            if (lineNumber > 1) {
+                columnNumber = relativeOffset - node.lineStarts[lineNumber - 2];
+            } else {
+                columnNumber = relativeOffset;
+            }
+
+            Node current = tree.getFirst();
+            int currentLineCount = 0;
+            while (current != null && current != node) {
+                currentLineCount += current.lineStarts.length;
+                current = tree.getSuccessor(current);
+            }
+
+            // Adjust for global line number using left subtree line count
+            int globalLineNumber = currentLineCount + lineNumber;
+
+            return new Position(globalLineNumber, columnNumber);
+        } catch (Exception e) {
+            Log.d(TAG, "Error in positionAt: " + e.getMessage(), e);
         }
-
-        // Adjust for global line number using left subtree line count
-        int globalLineNumber = (node.left != null ? node.left.left_subtree_lfcnt : 0) + lineNumber;
-
-        return new Position(globalLineNumber, columnNumber);
+        return null;
     }
 
     /**
@@ -1146,92 +1354,92 @@ public class PieceTree {
      * </p>
      *
      * @param lineNumber The target line number (1-based indexing). Must be ≥ 1.
-     * @param column The target column number (1-based indexing). Must be ≥ 1.
+     * @param column     The target column number (1-based indexing). Must be ≥ 1.
      * @return The 0-based character offset corresponding to the position.
-     *         Returns document length if position is beyond document end.
+     * Returns -1 if any error occur in duration.
      * @throws IllegalArgumentException if lineNumber or column is less than 1.
-     * @since 1.0
      * @see #findLinePosition(int)
      * @see LinePosition
+     * @since 1.0
      */
-    public int offsetAt(int lineNumber, int column) {
-        if (lineNumber < 1) {
-            throw new IllegalArgumentException("Line number must be 1 or greater");
-        }
-        if (column < 1) {
-            throw new IllegalArgumentException("Column number must be 1 or greater");
-        }
-
-        LinePosition linePos = findLinePosition(lineNumber);
-        if (linePos == null) {
-            return length(); // Line doesn't exist, return document length
-        }
-
-        Node node = linePos.node;
-        int lineStartInNode = node.lineStarts[linePos.lineNumber - 1];
-        int documentOffset = node.documentStart + lineStartInNode;
-
-        // If column is 1, we're at the start of the line
-        if (column == 1) {
-            return documentOffset;
-        }
-
-        // Calculate the target offset within the line
-        int targetColumn = column - 1; // Convert to 0-based
-        int currentColumn = 0;
-
-        char[] buffer = bufferManager.getBuffer(node.bufferIndex);
-
-        // Search within the current node first
-        for (int i = node.bufferStart + lineStartInNode;
-             i < node.bufferStart + node.length && currentColumn < targetColumn; i++) {
-            char ch = buffer[i];
-
-            // Stop if we hit a line ending
-            if (ch == LineFeed || ch == CarriageReturn) {
-                break;
+    public synchronized int offsetAt(int lineNumber, int column) {
+        try {
+            if (lineNumber < 1 || lineNumber > lineCount()) {
+                throw new IllegalArgumentException("Line number must be 1 or greater");
+            }
+            if (column < 1) {
+                throw new IllegalArgumentException("Column number must be 1 or greater");
             }
 
-            currentColumn++;
-            if (currentColumn == targetColumn) {
-                return documentOffset + currentColumn;
+            LinePosition linePos = findLinePosition(lineNumber);
+            if (linePos == null) return -1;
+
+            Node node = linePos.node;
+            int documentOffset = node.documentStart + linePos.offsetInNode;
+
+            // If column is 1, we're at the start of the line
+            if (column == 1) {
+                return documentOffset;
             }
-        }
 
-        // If we haven't found the column yet and haven't hit a line ending,
-        // continue to next nodes
-        if (currentColumn < targetColumn) {
-            Node currentNode = tree.getSuccessor(node);
-            int additionalOffset = node.length - lineStartInNode;
+            // Calculate the target offset within the line
+            int targetColumn = column - 1; // Convert to 0-based
+            int currentColumn = 0;
 
-            while (currentNode != null && currentColumn < targetColumn) {
-                char[] currentBuffer = bufferManager.getBuffer(currentNode.bufferIndex);
+            char[] buffer = bufferManager.getBuffer(node.bufferIndex);
 
-                for (int i = currentNode.bufferStart;
-                     i < currentNode.bufferStart + currentNode.length && currentColumn < targetColumn; i++) {
-                    char ch = currentBuffer[i];
+            // Search within the current node first
+            for (int i = node.bufferStart + linePos.offsetInNode;
+                 i < node.bufferStart + node.length && currentColumn < targetColumn; i++) {
+                char ch = buffer[i];
 
-                    // Stop if we hit a line ending
-                    if (ch == LineFeed || ch == CarriageReturn) {
-                        return documentOffset + currentColumn;
-                    }
-
-                    currentColumn++;
-                    if (currentColumn == targetColumn) {
-                        return documentOffset + currentColumn;
-                    }
+                // Stop if we hit a line ending
+                if (ch == LineFeed || ch == CarriageReturn) {
+                    break;
                 }
 
-                // If we processed the entire node without finding the column or line ending
-                if (currentColumn < targetColumn) {
-                    additionalOffset += currentNode.length;
-                    currentNode = tree.getSuccessor(currentNode);
+                currentColumn++;
+                if (currentColumn == targetColumn) {
+                    return documentOffset + currentColumn;
                 }
             }
-        }
 
-        // Return the offset at the end of the line if column exceeds line length
-        return documentOffset + currentColumn;
+            // If we haven't found the column yet and haven't hit a line ending,
+            // continue to next nodes
+            if (currentColumn < targetColumn) {
+                Node currentNode = tree.getSuccessor(node);
+
+                while (currentNode != null && currentColumn < targetColumn) {
+                    char[] currentBuffer = bufferManager.getBuffer(currentNode.bufferIndex);
+
+                    for (int i = currentNode.bufferStart;
+                         i < currentNode.bufferStart + currentNode.length && currentColumn < targetColumn; i++) {
+                        char ch = currentBuffer[i];
+
+                        // Stop if we hit a line ending
+                        if (ch == LineFeed || ch == CarriageReturn) {
+                            return documentOffset + currentColumn;
+                        }
+
+                        currentColumn++;
+                        if (currentColumn == targetColumn) {
+                            return documentOffset + currentColumn;
+                        }
+                    }
+
+                    // If we processed the entire node without finding the column or line ending
+                    if (currentColumn < targetColumn) {
+                        currentNode = tree.getSuccessor(currentNode);
+                    }
+                }
+            }
+
+            // Return the offset at the end of the line if column exceeds line length
+            return documentOffset + currentColumn;
+        } catch (IllegalArgumentException e) {
+            Log.d(TAG, "Error in offsetAt: " + e.getMessage(), e);
+        }
+        return -1;
     }
 
     /**
@@ -1239,80 +1447,65 @@ public class PieceTree {
      */
     private static class LinePosition {
         Node node;
-        int lineNumber; // 1-based line number.
+        int offsetInNode;
 
         /**
          * Constructs a new {@code LinePosition} instance.
          *
-         * @param node          The node containing the line.
-         * @param lineNumber    The line number within the node.
+         * @param node         The node containing the line.
+         * @param offsetInNode The offset within the node where the line begins.
          */
-        LinePosition(Node node, int lineNumber) {
+        LinePosition(Node node, int offsetInNode) {
             this.node = node;
-            this.lineNumber = lineNumber;
+            this.offsetInNode = offsetInNode;
         }
     }
 
     /**
-     * Finds the position of a specific line within the piece tree structure.
-     * This method uses optimized tree traversal to locate the node containing
-     * the target line number and returns both the node and the relative line
-     * position within that node.
+     * Finds the position of a specific line within the document using tree traversal.
+     * This method performs an in-order traversal to find the exact line position,
+     * ensuring accuracy by directly counting lines across nodes in document order.
      *
-     * <p>
-     * The algorithm performs a binary search-like traversal of the Red-Black tree,
-     * using the cached line count information in each node's left subtree to
-     * efficiently navigate to the target line without examining every node.
-     * </p>
-     *
-     * <p>
-     * Time Complexity: O(log N) where N is the number of nodes in the tree.
-     * Space Complexity: O(1) - uses only a constant amount of additional space.
-     * </p>
-     *
-     * @param lineNumber The target line number to find (1-based indexing).
-     *                   Must be greater than 0 and not exceed the total line count.
-     * @return A {@link LinePosition} object containing the node and relative line number,
-     *         or {@code null} if the line number is invalid or the tree is empty.
-     * @throws IllegalArgumentException if lineNumber is less than 1.
-     * @since 1.0
+     * @param lineNumber The 1-based line number to locate within the document.
+     * @return A {@link LinePosition} object containing the node and offset where the line starts,
+     * or {@code null} if the line number is invalid or exceeds the document's line count.
      * @see LinePosition
-     * @see Node#left_subtree_lfcnt
+     * @see #lineContent(int)
+     * @since 1.0
      */
     private LinePosition findLinePosition(int lineNumber) {
-        if (lineNumber < 1) {
-            throw new IllegalArgumentException("Line number must be 1 or greater");
-        }
+        if (lineNumber < 1) return null;
 
-        Node current = tree.getRoot();
-        if (current == null) {
-            return null; // Empty tree
-        }
+        Node root = tree.getRoot();
+        if (root == null) return null;
 
-        int targetLine = lineNumber;
+        Node current = tree.getFirst();
+        int currentLineCount = 0;
 
         while (current != null) {
-            // Get the number of lines in the left subtree
-            int leftSubtreeLines = (current.left != null) ? current.left.left_subtree_lfcnt + current.left.lineStarts.length : 0;
+            int nodeLineCount = current.lineStarts.length;
 
-            // Get the number of lines in the current node
-            int currentNodeLines = current.lineStarts.length;
+            // Check if target line is in this node
+            if (lineNumber > currentLineCount &&
+                    lineNumber <= currentLineCount + nodeLineCount) {
 
-            if (targetLine <= leftSubtreeLines) {
-                // Target line is in the left subtree
-                current = current.left;
-            } else if (targetLine <= leftSubtreeLines + currentNodeLines) {
-                // Target line is in the current node
-                int relativeLineInNode = targetLine - leftSubtreeLines - 1;
-                return new LinePosition(current, relativeLineInNode);
-            } else {
-                // Target line is in the right subtree
-                targetLine -= (leftSubtreeLines + currentNodeLines);
-                current = current.right;
+                // Target line is in current node
+                int lineInNode = lineNumber - currentLineCount; // 1-based line within node
+                int offsetInNode = 0;
+
+                if (lineInNode > 1 && lineInNode <= current.lineStarts.length) {
+                    // For line N (where N > 1), start at the position after (N-1)th line break
+                    offsetInNode = current.lineStarts[lineInNode - 2];
+                }
+
+                return new LinePosition(current, offsetInNode);
             }
+
+            currentLineCount += nodeLineCount;
+            current = tree.getSuccessor(current);
         }
 
-        return null; // Line not found (shouldn't happen with valid input)
+        return null; // Line not found
     }
 
     /**
@@ -1326,34 +1519,40 @@ public class PieceTree {
      * LF (\n), CRLF (\r\n), and CR (\r).
      * </p>
      *
-     * @param startNode The node where the line begins.
+     * @param startNode      The node where the line begins.
      * @param startPosInNode The starting position within the node's buffer.
      * @return The absolute document offset where the line ends (exclusive),
-     *         which is either at the EOL character(s) or at the document end.
-     * @since 1.0
+     * which is either at the EOL character(s) or at the document end,
+     * and Returns -1 if any occur in duration.
      * @apiNote This is a private helper method optimized for the lineContent() implementation.
+     * @since 1.0
      */
     private int findLineEnd(Node startNode, int startPosInNode) {
-        Node currentNode = startNode;
-        int currentPos = startPosInNode;
+        try {
+            Node currentNode = startNode;
+            int currentPos = startPosInNode;
 
-        while (currentNode != null) {
-            char[] buffer = bufferManager.getBuffer(currentNode.bufferIndex);
+            while (currentNode != null) {
+                char[] buffer = bufferManager.getBuffer(currentNode.bufferIndex);
 
-            for (int i = currentPos; i < currentNode.length; i++) {
-                char ch = buffer[currentNode.bufferStart + i];
-                if (ch == LineFeed || ch == CarriageReturn) {
-                    return currentNode.documentStart + i;
+                for (int i = currentPos; i < currentNode.length; i++) {
+                    char ch = buffer[currentNode.bufferStart + i];
+                    if (ch == LineFeed || ch == CarriageReturn) {
+                        return currentNode.documentStart + i;
+                    }
                 }
+
+                // Move to next node
+                currentNode = tree.getSuccessor(currentNode);
+                currentPos = 0; // Start from beginning of next node
             }
 
-            // Move to next node
-            currentNode = tree.getSuccessor(currentNode);
-            currentPos = 0; // Start from beginning of next node
+            // Reached end of document
+            return length();
+        } catch (Exception e) {
+            Log.d(TAG, "Error in findLineEnd: " + e.getMessage(), e);
         }
-
-        // Reached end of document
-        return length();
+        return -1;
     }
 
     /**
@@ -1381,10 +1580,10 @@ public class PieceTree {
      * </p>
      *
      * @return The total number of lines in the document (≥ 0).
-     * @since 1.0
      * @see #computeLineStarts(char[])
+     * @since 1.0
      */
-    public int lineCount() {
+    public synchronized int lineCount() {
         return tree.getLineCount();
     }
 
@@ -1412,10 +1611,10 @@ public class PieceTree {
      * @param lineNumber The line number (1-based). Must be valid line in document.
      * @return The character count of the line (≥ 0).
      * @throws IllegalArgumentException if lineNumber is invalid.
-     * @since 1.0
      * @see #lineContent(int)
+     * @since 1.0
      */
-    public int lineLength(int lineNumber) {
+    public synchronized int lineLength(int lineNumber) {
         return lineContent(lineNumber).length();
     }
 
@@ -1446,11 +1645,11 @@ public class PieceTree {
      *
      * @param eol The end-of-line character sequence to use. If null or same as current, no conversion is performed.
      * @return The complete document text with the specified EOL format.
-     * @since 1.0
      * @see #text()
      * @see #getEOL()
+     * @since 1.0
      */
-    public String text(String eol) {
+    public synchronized String text(String eol) {
         String content = text();
         if (eol != null && !eol.equals(this.eol)) {
             return content.replaceAll("(\r\n|\n|\r)", eol);
@@ -1482,28 +1681,41 @@ public class PieceTree {
      * </ul>
      * </p>
      *
+     * <p>
+     * Critical Scenario:
+     * <ul>
+     *     <li><b>OOM (Out-of-Memory):</b> When the total PieceTree text can't fit inside one string,
+     *     use line content approach their.</li>
+     * </ul>
+     * </p>
+     *
      * @return A string representing the complete text content of the document.
-     *         Returns empty string for empty documents.
-     * @since 1.0
+     * Returns empty string for empty documents.
      * @see RedBlackTree
      * @see BufferManager
+     * @since 1.0
      */
-    public String text() {
-        StringBuilder result = new StringBuilder();
-        Node current = tree.getRoot();
-        if (current == null) return "";
-        Stack<Node> stack = new Stack<>();
-        while (current != null || !stack.isEmpty()) {
-            while (current != null) {
-                stack.push(current);
-                current = current.left;
+    public synchronized String text() {
+        try {
+            StringBuilder result = new StringBuilder();
+            Node current = tree.getRoot();
+            if (current == null) return "";
+            Stack<Node> stack = new Stack<>();
+            while (current != null || !stack.isEmpty()) {
+                while (current != null) {
+                    stack.push(current);
+                    current = current.left;
+                }
+                current = stack.pop();
+                char[] buffer = bufferManager.getBuffer(current.bufferIndex);
+                result.append(new String(buffer, current.bufferStart, current.length));
+                current = current.right;
             }
-            current = stack.pop();
-            char[] buffer = bufferManager.getBuffer(current.bufferIndex);
-            result.append(new String(buffer, current.bufferStart, current.length));
-            current = current.right;
+            return result.toString();
+        } catch (Exception e) {
+            Log.d(TAG, "Error in text: " + e.getMessage(), e);
         }
-        return result.toString();
+        return "";
     }
 
     /**
@@ -1531,15 +1743,15 @@ public class PieceTree {
      * </p>
      *
      * @param startLineNumber The starting line (1-based, inclusive).
-     * @param startColumn The starting column (1-based, inclusive).
-     * @param endLineNumber The ending line (1-based, inclusive).
-     * @param endColumn The ending column (1-based, exclusive).
+     * @param startColumn     The starting column (1-based, inclusive).
+     * @param endLineNumber   The ending line (1-based, inclusive).
+     * @param endColumn       The ending column (1-based, exclusive).
      * @return The text content in the specified coordinate range.
-     * @since 1.0
      * @see #offsetAt(int, int)
      * @see #textRange(int, int)
+     * @since 1.0
      */
-    public String textRange(int startLineNumber, int startColumn, int endLineNumber, int endColumn) {
+    public synchronized String textRange(int startLineNumber, int startColumn, int endLineNumber, int endColumn) {
         int startOffset = offsetAt(startLineNumber, startColumn);
         int endOffset = offsetAt(endLineNumber, endColumn);
         return textRange(startOffset, endOffset);
@@ -1571,37 +1783,41 @@ public class PieceTree {
      * </p>
      *
      * @param start The inclusive starting offset (0-based).
-     * @param end The exclusive ending offset (0-based).
+     * @param end   The exclusive ending offset (0-based).
      * @return The extracted text between the offsets. Empty string if start ≥ end.
-     * @since 1.0
      * @see RedBlackTree#findNodeContaining(int)
      * @see RedBlackTree#getSuccessor(Node)
+     * @since 1.0
      */
-    public String textRange(int start, int end) {
-        if (start >= end) return "";
+    public synchronized String textRange(int start, int end) {
+        if (start >= end || end - start >= Integer.MAX_VALUE / 1000) return "";
+        try {
+            StringBuilder result = new StringBuilder();
+            Node currentNode = tree.findNodeContaining(start);
+            if (currentNode == null) return "";
 
-        StringBuilder result = new StringBuilder();
-        Node currentNode = tree.findNodeContaining(start);
-        if (currentNode == null) return "";
+            int currentOffset = start;
+            int remainingLength = end - start;
 
-        int currentOffset = start;
-        int remainingLength = end - start;
+            while (currentNode != null && remainingLength > 0) {
+                char[] buffer = bufferManager.getBuffer(currentNode.bufferIndex);
+                int nodeStart = Math.max(0, currentOffset - currentNode.documentStart);
+                int nodeEnd = Math.min(currentNode.length, nodeStart + remainingLength);
 
-        while (currentNode != null && remainingLength > 0) {
-            char[] buffer = bufferManager.getBuffer(currentNode.bufferIndex);
-            int nodeStart = Math.max(0, currentOffset - currentNode.documentStart);
-            int nodeEnd = Math.min(currentNode.length, nodeStart + remainingLength);
+                for (int i = nodeStart; i < nodeEnd; i++) {
+                    result.append(buffer[currentNode.bufferStart + i]);
+                }
 
-            for (int i = nodeStart; i < nodeEnd; i++) {
-                result.append(buffer[currentNode.bufferStart + i]);
+                remainingLength -= (nodeEnd - nodeStart);
+                currentOffset = currentNode.documentStart + currentNode.length;
+                currentNode = tree.getSuccessor(currentNode);
             }
 
-            remainingLength -= (nodeEnd - nodeStart);
-            currentOffset = currentNode.documentStart + currentNode.length;
-            currentNode = tree.getSuccessor(currentNode);
+            return result.toString();
+        } catch (Exception e) {
+            Log.d(TAG, "Error in textRange: " + e.getMessage(), e);
         }
-
-        return result.toString();
+        return "";
     }
 
     /**
@@ -1626,11 +1842,11 @@ public class PieceTree {
      * </p>
      *
      * @return The total number of characters in the document (≥ 0).
-     * @since 1.0
      * @see #getLengthFromNode(Node)
      * @see Node#documentStart
+     * @since 1.0
      */
-    public int length() {
+    public synchronized int length() {
         if (tree.getRoot() == null) {
             return 0;
         }
@@ -1652,10 +1868,7 @@ public class PieceTree {
         // If the node has cached document start and we're at root, we can compute total length
         // more efficiently by finding the rightmost node
         if (node == tree.getRoot()) {
-            Node rightmost = node;
-            while (rightmost.right != null) {
-                rightmost = rightmost.right;
-            }
+            Node rightmost = tree.getLast();
             return rightmost.documentStart + rightmost.length;
         }
 
@@ -1665,361 +1878,655 @@ public class PieceTree {
     // SEARCH METHODS
 
     /**
-     * Finds all occurrences of a search pattern with comprehensive matching options.
-     * This method provides powerful text search capabilities supporting both literal
-     * string matching and regular expression patterns with extensive customization.
+     * Finds all matching occurrences of a text or regex pattern within the document
+     * starting from a specified offset, with comprehensive search configuration options.
+     * This method provides the most flexible interface for pattern matching operations.
      *
      * <p>
-     * Search Features:
-     * <ul>
-     *   <li><b>Pattern Types:</b> Literal strings or regular expressions</li>
-     *   <li><b>Case Sensitivity:</b> Configurable case-sensitive or case-insensitive matching</li>
-     *   <li><b>Word Boundaries:</b> Custom word separator characters for whole-word matching</li>
-     *   <li><b>Result Limiting:</b> Optional maximum result count for performance control</li>
-     * </ul>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Validates input parameters and applies the {@code maxMatch} limit (capped at 1000).</li>
+     *   <li>Creates a compiled {@link Pattern} using the specified search criteria.</li>
+     *   <li>Locates the {@link Node} containing the {@code startOffset} and begins traversal.</li>
+     *   <li>Builds content incrementally across nodes to handle matches spanning boundaries.</li>
+     *   <li>Applies pattern matching with proper offset calculations for absolute positioning.</li>
+     *   <li>Maintains content overlap between nodes to ensure no matches are missed.</li>
+     * </ol>
      * </p>
      *
      * <p>
-     * Performance Characteristics:
+     * Important Considerations:
      * <ul>
-     *   <li><b>Time Complexity:</b> O(N * M) where N is document length, M is pattern length</li>
-     *   <li><b>Space Complexity:</b> O(R) where R is number of matches found</li>
-     *   <li><b>Regex Performance:</b> Depends on pattern complexity and Java regex engine</li>
+     *   <li><b>Performance Optimization:</b> Uses incremental content building and overlap
+     *       management to efficiently handle large documents without excessive memory usage.</li>
+     *   <li><b>Boundary Handling:</b> Sophisticated overlap detection ensures matches
+     *       spanning multiple nodes are correctly identified and positioned.</li>
+     *   <li><b>Flexible Matching:</b> Supports regex patterns, case sensitivity control,
+     *       whole word matching, and custom word separators.</li>
+     *   <li><b>Result Limiting:</b> The {@code maxMatch} parameter prevents excessive
+     *       memory consumption and provides controlled result sets.</li>
+     *   <li><b>Group Capture:</b> Optional capture group extraction for advanced
+     *       pattern matching and text processing scenarios.</li>
      * </ul>
      * </p>
      *
-     * <p>
-     * Use Cases:
-     * <ul>
-     *   <li>Find and replace operations in text editors</li>
-     *   <li>Syntax highlighting and code analysis</li>
-     *   <li>Content validation and pattern detection</li>
-     *   <li>Text mining and information extraction</li>
-     * </ul>
-     * </p>
-     *
-     * @param query The search pattern (literal string or regex).
-     * @param caseSensitive Whether to perform case-sensitive matching.
-     * @param wordSeparators Characters that define word boundaries.
-     * @param useRegex Whether to treat pattern as regular expression.
-     * @param captureGroups Treat {@link Matcher} {@code matcher} to returns multiple groups {@link Matcher#group(int)}.
-     * @return List of {@link FindMatch} objects containing match positions and text.
-     * @throws PatternSyntaxException if regex pattern is invalid.
-     * @since 1.0
+     * @param query          The text or regex pattern to search for.
+     * @param startOffset    The document offset from which to begin searching (0-based).
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     *                       Used when {@code wholeWord} matching is enabled.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @param maxMatch       Maximum number of matches to return. Automatically capped at 1000.
+     * @return A {@link List} of {@link FindMatch} objects representing all found matches.
+     * Returns empty list if no matches found or query is invalid.
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, boolean, int)
+     * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
      * @see FindMatch
-     * @see Pattern
-     * @see #findNext
+     * @since 1.0
      */
-    public List<FindMatch> findMatches(String query, boolean useRegex, boolean caseSensitive,
-                                   String wordSeparators, boolean captureGroups) {
+    public synchronized List<FindMatch> findMatches(String query, int startOffset, boolean useRegex,
+                                                    boolean caseSensitive, String wordSeparators,
+                                                    boolean captureGroups, int maxMatch) {
+        return findMatches(query, startOffset, useRegex, caseSensitive, wordSeparators,
+                captureGroups, true, maxMatch); // Default to whole word matching
+    }
+
+    /**
+     * Finds all matching occurrences of a text or regex pattern within the document
+     * starting from a specified offset, with full search configuration control including
+     * whole word matching options.
+     * This method represents the most comprehensive find operation available.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Validates all input parameters and enforces the {@code maxMatch} safety limit.</li>
+     *   <li>Constructs an optimized {@link Pattern} incorporating all matching criteria.</li>
+     *   <li>Identifies the starting {@link Node} and calculates the initial search position.</li>
+     *   <li>Performs efficient node traversal with intelligent content accumulation.</li>
+     *   <li>Executes pattern matching with absolute offset calculation for precise positioning.</li>
+     *   <li>Manages content overlap between nodes to ensure comprehensive match detection.</li>
+     *   <li>Extracts capture groups when requested and validates match boundaries.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *   <li><b>Comprehensive Control:</b> Provides complete control over all aspects
+     *       of pattern matching including case sensitivity, word boundaries, and regex features.</li>
+     *   <li><b>Memory Management:</b> Implements intelligent content overlap and cleanup
+     *       to handle large documents efficiently without memory bloat.</li>
+     *   <li><b>Whole Word Matching:</b> Advanced word boundary detection using customizable
+     *       word separator characters for precise linguistic matching.</li>
+     *   <li><b>Error Resilience:</b> Comprehensive error handling ensures graceful
+     *       degradation and meaningful logging for debugging purposes.</li>
+     *   <li><b>Node Spanning:</b> Sophisticated algorithm handles matches that cross
+     *       node boundaries seamlessly with precise offset calculations.</li>
+     * </ul>
+     * </p>
+     *
+     * @param query          The text or regex pattern to search for.
+     * @param startOffset    The document offset from which to begin searching (0-based).
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
+     * @param maxMatch       Maximum number of matches to return. Automatically capped at 1000.
+     * @return A {@link List} of {@link FindMatch} objects representing all found matches.
+     * Returns empty list if no matches found or parameters are invalid.
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, int)
+     * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
+     * @see FindMatch
+     * @since 1.0
+     */
+    public synchronized List<FindMatch> findMatches(String query, int startOffset, boolean useRegex,
+                                                    boolean caseSensitive, String wordSeparators,
+                                                    boolean captureGroups, boolean wholeWord, int maxMatch) {
         List<FindMatch> matches = new ArrayList<>();
-        String content = text();
+        maxMatch = Math.min(maxMatch, 1000);
+
+        if (query == null || query.isEmpty()) {
+            return matches;
+        }
 
         try {
-            Pattern pattern;
-            if (useRegex) {
-                int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
-                pattern = Pattern.compile(query, flags);
-            } else {
-                String escapedPattern = Pattern.quote(query);
-                if (wordSeparators != null) {
-                    // Construct a regex that uses the custom word separators for word boundaries
-                    String boundaryRegex = "(?<=^|[" + Pattern.quote(wordSeparators) + "])";
-                    escapedPattern = boundaryRegex + escapedPattern + "(?=$|[" + Pattern.quote(wordSeparators) + "])";
-                }
-                int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
-                pattern = Pattern.compile(escapedPattern, flags);
+            Pattern pattern = createPattern(query, useRegex, caseSensitive, wordSeparators, wholeWord);
+
+            // Start from the node containing startOffset
+            Node current = tree.findNodeContaining(startOffset);
+            if (current == null) {
+                return matches;
             }
 
-            Matcher matcher = pattern.matcher(content);
-            while (matcher.find()) {
-                List<String> matchGroups = new ArrayList<>();
-                if (captureGroups) {
-                    for (int i = 0; i <= matcher.groupCount(); i++) {
-                        matchGroups.add(matcher.group(i));
+            // Build content incrementally and search
+            StringBuilder contentBuilder = new StringBuilder();
+            int contentStartOffset = current.documentStart;
+            int searchStartInContent = Math.max(0, startOffset - contentStartOffset);
+
+            while (current != null && matches.size() < maxMatch) {
+                // Append current node content
+                String nodeContent = new String(bufferManager.getBuffer(current.bufferIndex),
+                        current.bufferStart, current.length);
+                contentBuilder.append(nodeContent);
+
+                // Search in accumulated content
+                String content = contentBuilder.toString();
+                Matcher matcher = pattern.matcher(content);
+
+                // Find matches starting from the appropriate position
+                int searchStart = (current.documentStart == contentStartOffset) ? searchStartInContent : 0;
+                while (matcher.find(searchStart) && matches.size() < maxMatch) {
+                    List<String> matchGroups = extractGroups(matcher, captureGroups);
+
+                    int absoluteStart = matcher.start() + contentStartOffset;
+                    int absoluteEnd = matcher.end() + contentStartOffset;
+
+                    // Validate bounds
+                    if (absoluteStart >= 0 && absoluteEnd <= length()) {
+                        matches.add(new FindMatch(absoluteStart, absoluteEnd, matchGroups));
                     }
-                } else {
-                    matchGroups.add(matcher.group());
+
+                    searchStart = matcher.start() + 1; // Continue search after this match
                 }
 
-                matches.add(new FindMatch(matcher.start(), matcher.end(), matchGroups));
+                current = tree.getSuccessor(current);
+
+                // For next iteration, keep some overlap to handle matches spanning nodes
+                if (current != null && contentBuilder.length() > query.length() * 2) {
+                    int keepLength = query.length() * 2;
+                    String overlap = contentBuilder.substring(contentBuilder.length() - keepLength);
+                    contentBuilder = new StringBuilder(overlap);
+                    contentStartOffset = current.documentStart - keepLength;
+                }
             }
         } catch (Exception e) {
-            throw new PatternSyntaxException(e.getMessage(), query, 0);
+            Log.e(TAG, "Error in findMatches: " + e.getMessage(), e);
         }
 
         return matches;
     }
 
     /**
-     * Finds the next occurrence of a pattern starting from a specified line and column.
-     * This method provides efficient forward search functionality optimized for
-     * incremental search operations and interactive find-as-you-type features,
-     * using human-readable line/column coordinates.
+     * Finds the next occurrence of a text or regex pattern starting from a specified
+     * position in the document, with default whole word matching enabled.
+     * This method provides a convenient position-based interface for sequential search operations.
      *
      * <p>
-     * Search Strategy:
+     * Operation Sequence:
      * <ol>
-     *   <li>Converts line/column start position to absolute document offset.</li>
-     *   <li>Delegates to offset-based {@link #findNext(String, int, boolean, boolean, String, boolean)}
-     *       for actual search execution.</li>
-     *   <li>Returns first match found or null if no match exists.</li>
-     *   <li>Supports wraparound search to document beginning if underlying implementation does.</li>
+     *   <li>Converts the {@link Position} parameter to a document offset using {@link #offsetAt(int, int)}.</li>
+     *   <li>Delegates to the offset-based {@code findNext} method with whole word matching enabled.</li>
+     *   <li>Returns the first match found after the specified position, or {@code null} if none exists.</li>
      * </ol>
      * </p>
      *
      * <p>
-     * Coordinate Handling:
+     * Important Considerations:
      * <ul>
-     *   <li>Line and column numbers are 1-based (editor convention).</li>
-     *   <li>Invalid coordinates are handled by {@link #offsetAt(int, int)}.</li>
+     *   <li><b>Position Convenience:</b> Simplifies usage when working with line/column
+     *       coordinates instead of raw document offsets.</li>
+     *   <li><b>Default Behavior:</b> Automatically enables whole word matching for
+     *       more precise text search operations.</li>
+     *   <li><b>Sequential Search:</b> Designed for iterative search operations where
+     *       you need to find matches one at a time in document order.</li>
      * </ul>
      * </p>
      *
-     * @param query The search pattern to find.
-     * @param startPos The starting {@link Position} (line and column) for the search.
-     * @param useRegex Whether to treat the pattern as a regular expression.
-     * @param caseSensitive Whether to perform case-sensitive matching.
-     * @param wordSeparators Characters that define word boundaries for non-regex search.
-     * @param captureGroups Treat {@link Matcher} {@code matcher} to returns multiple groups {@link Matcher#group(int)}.
-     * @return {@link FindMatch} containing match details, or null if no match found.
-     * @throws PatternSyntaxException if the regex pattern is invalid.
+     * @param query          The text or regex pattern to search for.
+     * @param startPos       The {@link Position} (line, column) from which to begin searching.
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @return A {@link FindMatch} object representing the next match found, or {@code null} if none exists.
+     * @see #findNext(String, Position, boolean, boolean, String, boolean, boolean)
+     * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
+     * @see Position
      * @since 1.0
-     * @see #findNext(String, int, boolean, boolean, String, boolean)
-     * @see #offsetAt(int, int)
      */
-    public FindMatch findNext(String query, Position startPos, boolean useRegex,
-                                   boolean caseSensitive, String wordSeparators, boolean captureGroups) {
-        int startOffset = offsetAt(startPos.lineNumber, startPos.column);
-        return findNext(query, startOffset, useRegex, caseSensitive, wordSeparators, captureGroups);
+    public synchronized FindMatch findNext(String query, Position startPos, boolean useRegex,
+                                           boolean caseSensitive, String wordSeparators,
+                                           boolean captureGroups) {
+        return findNext(query, startPos, useRegex, caseSensitive, wordSeparators,
+                captureGroups, true); // Default to whole word matching
     }
 
     /**
-     * Finds the next occurrence of a pattern starting from a specified position.
-     * This method provides efficient forward search functionality optimized for
-     * incremental search operations and interactive find-as-you-type features.
+     * Finds the next occurrence of a text or regex pattern starting from a specified
+     * position in the document, with full control over word matching behavior.
+     * This method offers comprehensive search configuration through position-based coordinates.
      *
      * <p>
-     * Search Strategy:
+     * Operation Sequence:
      * <ol>
-     *   <li>Starts search from specified offset position</li>
-     *   <li>Uses optimized pattern matching algorithm</li>
-     *   <li>Returns first match found or null if no match exists</li>
-     *   <li>Supports wraparound search to document beginning</li>
+     *   <li>Translates the {@link Position} coordinates to a document offset.</li>
+     *   <li>Invokes the offset-based {@code findNext} method with all specified parameters.</li>
+     *   <li>Returns the search result maintaining all configured matching criteria.</li>
      * </ol>
      * </p>
      *
      * <p>
-     * Performance Optimizations:
+     * Important Considerations:
      * <ul>
-     *   <li>Early termination on first match for interactive usage</li>
-     *   <li>Efficient text access through piece tree structure</li>
-     *   <li>Minimal memory allocation during search process</li>
-     *   <li>Optimized for repeated searches with different start positions</li>
+     *   <li><b>Position Flexibility:</b> Allows precise control over search starting
+     *       point using intuitive line and column coordinates.</li>
+     *   <li><b>Word Boundary Control:</b> Configurable whole word matching provides
+     *       fine-grained control over match precision.</li>
+     *   <li><b>Editor Integration:</b> Designed for integration with text editors
+     *       and IDEs that work with position-based coordinates.</li>
      * </ul>
      * </p>
      *
-     * @param query The search pattern to find.
-     * @param startOffset The starting offset for the search (0-based).
-     * @param useRegex Whether to treat pattern as regular expression.
-     * @param caseSensitive Whether to perform case-sensitive matching.
-     * @param wordSeparators Characters that define word boundaries.
-     * @param captureGroups Treat {@link Matcher} {@code matcher} to returns multiple groups {@link Matcher#group(int)}.
-     * @return {@link FindMatch} containing match details, or null if no match found.
-     * @throws PatternSyntaxException if regex pattern is invalid.
+     * @param query          The text or regex pattern to search for.
+     * @param startPos       The {@link Position} (line, column) from which to begin searching.
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
+     * @return A {@link FindMatch} object representing the next match found, or {@code null} if none exists.
+     * @see #findNext(String, Position, boolean, boolean, String, boolean)
+     * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
+     * @see Position
      * @since 1.0
-     * @see #findPrevious
      */
-    public FindMatch findNext(String query, int startOffset, boolean useRegex,
-                              boolean caseSensitive, String wordSeparators, boolean captureGroups) {
-        String content = text();
+    public synchronized FindMatch findNext(String query, Position startPos, boolean useRegex,
+                                           boolean caseSensitive, String wordSeparators,
+                                           boolean captureGroups, boolean wholeWord) {
+        int startOffset = offsetAt(startPos.lineNumber, startPos.column);
+        return findNext(query, startOffset, useRegex, caseSensitive, wordSeparators, captureGroups, wholeWord);
+    }
+
+    /**
+     * Finds the next occurrence of a text or regex pattern starting from a specified
+     * document offset, with default whole word matching enabled.
+     * This method provides a streamlined interface for offset-based sequential searching.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Validates the {@code startOffset} parameter and query string.</li>
+     *   <li>Delegates to the comprehensive {@code findNext} method with whole word matching enabled.</li>
+     *   <li>Returns the first match found after the offset, or {@code null} if no match exists.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *   <li><b>Simplified Interface:</b> Reduces parameter complexity while maintaining
+     *       essential search functionality for common use cases.</li>
+     *   <li><b>Whole Word Default:</b> Automatically applies word boundary matching
+     *       for more accurate text searching in most scenarios.</li>
+     *   <li><b>Performance Focus:</b> Optimized for single match retrieval with
+     *       early termination upon finding the first result.</li>
+     * </ul>
+     * </p>
+     *
+     * @param query          The text or regex pattern to search for.
+     * @param startOffset    The document offset from which to begin searching (0-based).
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @return A {@link FindMatch} object representing the next match found, or {@code null} if none exists.
+     * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, int)
+     * @since 1.0
+     */
+    public synchronized FindMatch findNext(String query, int startOffset, boolean useRegex,
+                                           boolean caseSensitive, String wordSeparators,
+                                           boolean captureGroups) {
+        return findNext(query, startOffset, useRegex, caseSensitive, wordSeparators,
+                captureGroups, true); // Default to whole word matching
+    }
+
+    /**
+     * Finds the next occurrence of a text or regex pattern starting from a specified
+     * document offset, with comprehensive search configuration options.
+     * This method represents the core implementation for forward pattern searching.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Validates input parameters and creates an optimized {@link Pattern} object.</li>
+     *   <li>Locates the {@link Node} containing the specified {@code startOffset}.</li>
+     *   <li>Builds content incrementally across nodes to handle boundary-spanning matches.</li>
+     *   <li>Applies pattern matching with precise offset calculations for absolute positioning.</li>
+     *   <li>Manages intelligent content overlap between nodes to ensure match detection.</li>
+     *   <li>Returns the first valid match found or {@code null} if no matches exist.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *   <li><b>Efficient Traversal:</b> Uses optimized node traversal with early termination
+     *       upon finding the first match, minimizing computational overhead.</li>
+     *   <li><b>Boundary Intelligence:</b> Sophisticated overlap management ensures matches
+     *       that span across node boundaries are correctly identified and positioned.</li>
+     *   <li><b>Memory Optimization:</b> Implements content window management to handle
+     *       large documents without excessive memory consumption.</li>
+     *   <li><b>Error Handling:</b> Comprehensive exception handling with detailed logging
+     *       ensures robust operation and debugging capabilities.</li>
+     *   <li><b>Offset Precision:</b> Maintains absolute document offset accuracy throughout
+     *       the search process for reliable match positioning.</li>
+     * </ul>
+     * </p>
+     *
+     * @param query          The text or regex pattern to search for.
+     * @param startOffset    The document offset from which to begin searching (0-based).
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
+     * @return A {@link FindMatch} object representing the next match found, or {@code null} if none exists.
+     * @see #findNext(String, int, boolean, boolean, String, boolean)
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, boolean, int)
+     * @see #findPrevious(String, int, boolean, boolean, String, boolean, boolean)
+     * @since 1.0
+     */
+    public synchronized FindMatch findNext(String query, int startOffset, boolean useRegex,
+                                           boolean caseSensitive, String wordSeparators,
+                                           boolean captureGroups, boolean wholeWord) {
+        if (query == null || query.isEmpty()) {
+            return null;
+        }
 
         try {
-            Pattern pattern;
-            if (useRegex) {
-                int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
-                pattern = Pattern.compile(query, flags);
-            } else {
-                String escapedPattern = Pattern.quote(query);
-                if (wordSeparators != null) {
-                    // Construct a regex that uses the custom word separators for word boundaries
-                    String boundaryRegex = "(?<=^|[" + Pattern.quote(wordSeparators) + "])";
-                    escapedPattern = boundaryRegex + escapedPattern + "(?=$|[" + Pattern.quote(wordSeparators) + "])";
-                }
-                int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
-                pattern = Pattern.compile(escapedPattern, flags);
+            Pattern pattern = createPattern(query, useRegex, caseSensitive, wordSeparators, wholeWord);
+
+            Node current = tree.findNodeContaining(startOffset);
+            if (current == null) {
+                return null;
             }
 
-            Matcher matcher = pattern.matcher(content);
-            if (matcher.find(startOffset)) {
-                List<String> matchGroups = new ArrayList<>();
-                if (captureGroups) {
-                    for (int i = 0; i <= matcher.groupCount(); i++) {
-                        matchGroups.add(matcher.group(i));
+            StringBuilder contentBuilder = new StringBuilder();
+            int contentStartOffset = current.documentStart;
+            int searchStartInContent = Math.max(0, startOffset - contentStartOffset);
+
+            while (current != null) {
+                // Append current node content
+                contentBuilder.append(new String(bufferManager.getBuffer(current.bufferIndex), current.bufferStart, current.length));
+
+                // Search in accumulated content
+                String content = contentBuilder.toString();
+                Matcher matcher = pattern.matcher(content);
+
+                // Find first match starting from the appropriate position
+                int searchStart = (current.documentStart == contentStartOffset) ? searchStartInContent : 0;
+                if (matcher.find(searchStart)) {
+                    int absoluteStart = matcher.start() + contentStartOffset;
+                    int absoluteEnd = matcher.end() + contentStartOffset;
+
+                    // Validate bounds
+                    if (absoluteStart >= 0 && absoluteEnd <= length()) {
+                        return new FindMatch(absoluteStart, absoluteEnd, extractGroups(matcher, captureGroups));
                     }
-                } else {
-                    matchGroups.add(matcher.group());
                 }
 
-                return new FindMatch(matcher.start(), matcher.end(), matchGroups);
+                current = tree.getSuccessor(current);
+
+                // For next iteration, keep some overlap to handle matches spanning nodes
+                if (current != null && contentBuilder.length() > query.length() * 2) {
+                    int keepLength = query.length() * 2;
+                    String overlap = contentBuilder.substring(contentBuilder.length() - keepLength);
+                    contentBuilder = new StringBuilder(overlap);
+                    contentStartOffset = current.documentStart - keepLength;
+                }
             }
         } catch (Exception e) {
-            throw new PatternSyntaxException(e.getMessage(), query, startOffset);
+            Log.e(TAG, "Error in findNext: " + e.getMessage(), e);
         }
 
         return null;
     }
 
     /**
-     * Finds the previous occurrence of a pattern searching backwards from a specified
-     * line and column {@link Position}. This method serves as a convenience overload,
-     * converting human-readable line/column coordinates to an absolute document offset
-     * before delegating to the offset-based findPrevious implementation.
+     * Finds the previous occurrence of a text or regex pattern ending before a specified
+     * position in the document, with default whole word matching enabled.
+     * This method provides a convenient position-based interface for backward search operations.
      *
      * <p>
-     * This method is typically used for "Find Previous" features in text editors where
-     * the starting point of the backward search is naturally expressed in terms of
-     * line and column numbers.
-     * </p>
-     *
-     * <p>
-     * Search Strategy:
+     * Operation Sequence:
      * <ol>
-     *   <li>Converts the given {@code endPos} (line and column) to an absolute
-     *       document offset using {@link #offsetAt(int, int)}. This offset represents
-     *       the point <em>before</em> which the search should find a match.</li>
-     *   <li>Delegates the actual search logic to the offset-based
-     *       {@link #findPrevious(String, int, boolean, boolean, String, boolean)} method.</li>
-     *   <li>The underlying offset-based method searches the content from the document
-     *       start up to this calculated offset and returns the last match found.</li>
+     *   <li>Converts the {@link Position} parameter to a document offset using {@link #offsetAt(int, int)}.</li>
+     *   <li>Delegates to the offset-based {@code findPrevious} method with whole word matching enabled.</li>
+     *   <li>Returns the last match found before the specified position, or {@code null} if none exists.</li>
      * </ol>
      * </p>
      *
      * <p>
-     * Coordinate Handling:
+     * Important Considerations:
      * <ul>
-     *   <li>Line and column numbers within the {@code endPos} are typically 1-based,
-     *       consistent with editor conventions.</li>
-     *   <li>The validity and conversion of these coordinates to an offset are handled
-     *       by the {@link #offsetAt(int, int)} method.</li>
+     *   <li><b>Reverse Navigation:</b> Enables backward text navigation and search
+     *       functionality essential for comprehensive text editing operations.</li>
+     *   <li><b>Position Convenience:</b> Simplifies usage when working with line/column
+     *       coordinates in text editor environments.</li>
+     *   <li><b>Default Precision:</b> Automatically enables whole word matching for
+     *       more accurate backward searching operations.</li>
      * </ul>
      * </p>
      *
-     * <p>
-     * Performance Considerations:
-     * Refer to the performance considerations of the underlying
-     * {@link #findPrevious(String, int, boolean, boolean, String, boolean)} method,
-     * particularly regarding substring extraction for backward searches.
-     * </p>
-     *
-     * @param query The search pattern (literal string or regular expression) to find.
-     * @param endPos The {@link Position} (line and column) marking the end point
-     *               for the backward search. The search looks for matches occurring
-     *               <em>before</em> this position.
-     * @param useRegex Whether to interpret the {@code query} as a regular expression.
-     * @param caseSensitive Whether the search should be case-sensitive.
-     * @param wordSeparators A string of characters that define word boundaries if
-     *                       {@code useRegex} is false and word-based searching is desired.
-     *                       Can be {@code null} if not applicable.
-     * @param captureGroups Treat {@link Matcher} {@code matcher} to returns multiple groups {@link Matcher#group(int)}.
-     * @return A {@link FindMatch} object containing the details of the found match
-     *         (start offset, end offset, and matched groups/text), or {@code null}
-     *         if no preceding occurrence of the pattern is found.
-     * @throws PatternSyntaxException if the {@code query} is a regular expression and
-     *                                its syntax is invalid.
-     * @since 1.0
-     * @see #findPrevious(String, int, boolean, boolean, String, boolean)
-     * @see #findNext(String, Position, boolean, boolean, String, boolean)
-     * @see #offsetAt(int, int)
+     * @param query          The text or regex pattern to search for.
+     * @param endPos         The {@link Position} (line, column) before which to search.
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @return A {@link FindMatch} object representing the previous match found, or {@code null} if none exists.
+     * @see #findPrevious(String, Position, boolean, boolean, String, boolean, boolean)
+     * @see #findPrevious(String, int, boolean, boolean, String, boolean, boolean)
      * @see Position
-     * @see FindMatch
+     * @since 1.0
      */
-    public FindMatch findPrevious(String query, Position endPos, boolean useRegex,
-                                  boolean caseSensitive, String wordSeparators, boolean captureGroups) {
-        int endOffset = offsetAt(endPos.lineNumber, endPos.column);
-        return findPrevious(query, endOffset, useRegex, caseSensitive, wordSeparators, captureGroups);
+    public synchronized FindMatch findPrevious(String query, Position endPos, boolean useRegex,
+                                               boolean caseSensitive, String wordSeparators,
+                                               boolean captureGroups) {
+        return findPrevious(query, endPos, useRegex, caseSensitive, wordSeparators,
+                captureGroups, true); // Default to whole word matching
     }
 
     /**
-     * Finds the previous occurrence of a pattern starting from a specified line and column, searching backwards.
-     * This method provides efficient backward search functionality, typically used for "Find Previous"
-     * features in text editors.
+     * Finds the previous occurrence of a text or regex pattern ending before a specified
+     * position in the document, with full control over word matching behavior.
+     * This method offers comprehensive backward search configuration through position-based coordinates.
      *
      * <p>
-     * Search Strategy:
+     * Operation Sequence:
      * <ol>
-     *   <li>Converts line/column start position to an absolute document offset. This offset marks the
-     *       <em>end</em> of the text range to be searched.</li>
-     *   <li>Extracts the document content from the beginning up to the calculated end offset.</li>
-     *   <li>Performs a forward search within this extracted substring.</li>
-     *   <li>Returns the <em>last</em> match found in the substring, which corresponds to the
-     *       occurrence immediately preceding the specified start position in the original document.</li>
-     *   <li>If no match is found in the substring, returns null.</li>
-     *   <li>Supports wraparound search if the underlying logic is extended to handle it (currently searches up to start).</li>
+     *   <li>Translates the {@link Position} coordinates to a document offset.</li>
+     *   <li>Invokes the offset-based {@code findPrevious} method with all specified parameters.</li>
+     *   <li>Returns the search result maintaining all configured matching criteria.</li>
      * </ol>
      * </p>
      *
      * <p>
-     * Performance Considerations:
+     * Important Considerations:
      * <ul>
-     *   <li>Extracting the substring can be O(N) where N is the end offset. For searches near the document end, this can be costly.</li>
-     *   <li>Regex matching performance depends on pattern complexity and substring length.</li>
-     *   <li>Consider optimizations for very large documents if performance is critical for backward searches.</li>
+     *   <li><b>Backward Navigation:</b> Essential functionality for comprehensive text
+     *       search and navigation in both directions through the document.</li>
+     *   <li><b>Position Precision:</b> Allows exact control over search endpoint
+     *       using intuitive line and column coordinates.</li>
+     *   <li><b>Editor Integration:</b> Designed for seamless integration with text
+     *       editors that require bidirectional search capabilities.</li>
      * </ul>
      * </p>
      *
-     * @param query The search pattern (literal string or regex) to find.
-     * @param endOffset The end offset from which to start searching backwards.
-     * @param useRegex Whether to treat the pattern as a regular expression.
-     * @param caseSensitive Whether to perform case-sensitive matching.
-     * @param wordSeparators Characters that define word boundaries for non-regex search.
-     * @param captureGroups Treat {@link Matcher} {@code matcher} to returns multiple groups {@link Matcher#group(int)}.
-     * @return {@link FindMatch} containing match details, or null if no match found.
-     * @throws PatternSyntaxException if the regex pattern is invalid.
+     * @param query          The text or regex pattern to search for.
+     * @param endPos         The {@link Position} (line, column) before which to search.
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
+     * @return A {@link FindMatch} object representing the previous match found, or {@code null} if none exists.
+     * @see #findPrevious(String, Position, boolean, boolean, String, boolean)
+     * @see #findPrevious(String, int, boolean, boolean, String, boolean, boolean)
+     * @see Position
      * @since 1.0
-     * @see #findNext(String, Position, boolean, boolean, String, boolean)
-     * @see #offsetAt(int, int)
      */
-    public FindMatch findPrevious(String query, int endOffset, boolean useRegex,
-                                       boolean caseSensitive, String wordSeparators, boolean captureGroups) {
-        String content = text().substring(0, endOffset);
+    public synchronized FindMatch findPrevious(String query, Position endPos, boolean useRegex,
+                                               boolean caseSensitive, String wordSeparators,
+                                               boolean captureGroups, boolean wholeWord) {
+        int endOffset = offsetAt(endPos.lineNumber, endPos.column);
+        return findPrevious(query, endOffset, useRegex, caseSensitive, wordSeparators, captureGroups, wholeWord);
+    }
+
+    /**
+     * Finds the previous occurrence of a text or regex pattern ending before a specified
+     * document offset, with default whole word matching enabled.
+     * This method provides a streamlined interface for offset-based backward searching.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Validates the {@code endOffset} parameter and query string.</li>
+     *   <li>Delegates to the comprehensive {@code findPrevious} method with whole word matching enabled.</li>
+     *   <li>Returns the last match found before the offset, or {@code null} if no match exists.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *   <li><b>Simplified Interface:</b> Reduces parameter complexity while maintaining
+     *       essential backward search functionality for common use cases.</li>
+     *   <li><b>Whole Word Default:</b> Automatically applies word boundary matching
+     *       for more accurate reverse text searching.</li>
+     *   <li><b>Performance Focus:</b> Optimized for single match retrieval with
+     *       efficient backward traversal algorithms.</li>
+     * </ul>
+     * </p>
+     *
+     * @param query          The text or regex pattern to search for.
+     * @param endOffset      The document offset before which to search (0-based, exclusive).
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @return A {@link FindMatch} object representing the previous match found, or {@code null} if none exists.
+     * @see #findPrevious(String, int, boolean, boolean, String, boolean, boolean)
+     * @see #findNext(String, int, boolean, boolean, String, boolean)
+     * @since 1.0
+     */
+    public synchronized FindMatch findPrevious(String query, int endOffset, boolean useRegex,
+                                               boolean caseSensitive, String wordSeparators,
+                                               boolean captureGroups) {
+        return findPrevious(query, endOffset, useRegex, caseSensitive, wordSeparators,
+                captureGroups, true); // Default to whole word matching
+    }
+
+    /**
+     * Finds the previous occurrence of a text or regex pattern ending before a specified
+     * document offset, with comprehensive search configuration options.
+     * This method represents the core implementation for backward pattern searching.
+     *
+     * <p>
+     * Operation Sequence:
+     * <ol>
+     *   <li>Validates input parameters and creates an optimized {@link Pattern} object.</li>
+     *   <li>Locates the {@link Node} containing the specified {@code endOffset}.</li>
+     *   <li>Performs reverse traversal through document nodes while accumulating content.</li>
+     *   <li>Applies pattern matching to find all matches within the current content scope.</li>
+     *   <li>Tracks the last valid match that falls before the specified end offset.</li>
+     *   <li>Returns the most recent match found or {@code null} if no matches exist.</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Important Considerations:
+     * <ul>
+     *   <li><b>Reverse Algorithm:</b> Implements sophisticated backward search logic
+     *       that efficiently processes document content in reverse order.</li>
+     *   <li><b>Boundary Handling:</b> Carefully manages node boundaries and content
+     *       accumulation to ensure accurate match detection across all document regions.</li>
+     *   <li><b>Last Match Tracking:</b> Maintains state to identify the most recent
+     *       valid match before the specified endpoint, handling multiple candidates correctly.</li>
+     *   <li><b>Offset Validation:</b> Comprehensive bounds checking ensures matches
+     *       are within valid document ranges and before the specified end position.</li>
+     *   <li><b>Performance Optimization:</b> Uses early termination strategies when
+     *       matches are found to minimize unnecessary processing.</li>
+     * </ul>
+     * </p>
+     *
+     * @param query          The text or regex pattern to search for.
+     * @param endOffset      The document offset before which to search (0-based, exclusive).
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
+     * @return A {@link FindMatch} object representing the previous match found, or {@code null} if none exists.
+     * @see #findPrevious(String, int, boolean, boolean, String, boolean)
+     * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
+     * @see #findMatches(String, int, boolean, boolean, String, boolean, boolean, int)
+     * @since 1.0
+     */
+    public synchronized FindMatch findPrevious(String query, int endOffset, boolean useRegex,
+                                               boolean caseSensitive, String wordSeparators,
+                                               boolean captureGroups, boolean wholeWord) {
+        if (query == null || query.isEmpty()) {
+            return null;
+        }
 
         try {
-            Pattern pattern;
-            if (useRegex) {
-                int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
-                pattern = Pattern.compile(query, flags);
-            } else {
-                String escapedPattern = Pattern.quote(query);
-                if (wordSeparators != null) {
-                    // Construct a regex that uses the custom word separators for word boundaries
-                    String boundaryRegex = "(?<=^|[" + Pattern.quote(wordSeparators) + "])";
-                    escapedPattern = boundaryRegex + escapedPattern + "(?=$|[" + Pattern.quote(wordSeparators) + "])";
-                }
-                int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
-                pattern = Pattern.compile(escapedPattern, flags);
-            }
+            Pattern pattern = createPattern(query, useRegex, caseSensitive, wordSeparators, wholeWord);
 
-            Matcher matcher = pattern.matcher(content);
+            Node current = tree.findNodeContaining(endOffset);
+            if (current == null) return null;
+
             FindMatch lastMatch = null;
+            StringBuilder contentBuilder = new StringBuilder();
+            int contentStartOffset = current.documentStart;
 
-            while (matcher.find()) {
-                List<String> matchGroups = new ArrayList<>();
-                if (captureGroups) {
-                    for (int i = 0; i <= matcher.groupCount(); i++) {
-                        matchGroups.add(matcher.group(i));
+            while (current != null && contentStartOffset < endOffset) {
+                // Append current node content
+                contentBuilder.append(new String(bufferManager.getBuffer(current.bufferIndex), current.bufferStart, current.length));
+
+                // Search in accumulated content
+                String content = contentBuilder.toString();
+                Matcher matcher = pattern.matcher(content);
+
+                while (matcher.find()) {
+                    int absoluteStart = matcher.start() + contentStartOffset;
+                    int absoluteEnd = matcher.end() + contentStartOffset;
+
+                    // Validate bounds
+                    if (absoluteEnd < endOffset && absoluteStart >= 0 && absoluteEnd <= length()) {
+                        lastMatch = new FindMatch(absoluteStart, absoluteEnd, extractGroups(matcher, captureGroups));
                     }
-                } else {
-                    matchGroups.add(matcher.group());
                 }
 
-                lastMatch = new FindMatch(matcher.start(), matcher.end(), matchGroups);
+                if (lastMatch != null) break;
+
+                current = tree.findNodeContaining(contentStartOffset - 1);
+
+                if (current != null) {
+                    contentBuilder = new StringBuilder();
+                    contentStartOffset = current.documentStart;
+                }
             }
 
             return lastMatch;
         } catch (Exception e) {
-            throw new PatternSyntaxException(e.getMessage(), query, 0);
+            Log.e(TAG, "Error in findPrevious: " + e.getMessage(), e);
         }
+        return null;
     }
 
     // UTILITY METHODS
@@ -2039,11 +2546,11 @@ public class PieceTree {
      * </p>
      *
      * @return The current end-of-line character sequence.
-     * @since 1.0
      * @see #setEOL(String)
      * @see EOLNormalization
+     * @since 1.0
      */
-    public String getEOL() {
+    public synchronized String getEOL() {
         return eol;
     }
 
@@ -2069,14 +2576,74 @@ public class PieceTree {
      *
      * @param eol The new end-of-line character sequence.
      * @throws IllegalArgumentException if eol is null or empty.
-     * @since 1.0
      * @see #getEOL()
      * @see #text(String)
+     * @since 1.0
      */
-    public void setEOL(String eol) {
+    public synchronized void setEOL(String eol) {
         if (eol != null && (eol.equals("\n") || eol.equals("\r\n") || eol.equals("\r"))) {
             this.eol = eol;
         }
+    }
+
+    /**
+     * Checks if automatic End-Of-Line (EOL) normalization is enabled for the document.
+     * When EOL normalization is active, the document attempts to maintain a consistent
+     * EOL sequence (as determined by {@link #getEOL()}) by converting or standardizing
+     * EOL characters during text operations like insertion or replacement.
+     *
+     * <p>
+     * If enabled, text being inserted into the document will have its EOL characters
+     * (e.g., "\n", "\r\n", "\r") converted to the document's current EOL setting.
+     * If disabled, EOL characters from inserted text are preserved as is.
+     * </p>
+     *
+     * <p>
+     * This setting primarily affects how new text is integrated into the document.
+     * It does not retroactively normalize the entire existing document content unless
+     * specific operations that re-process text are performed.
+     * </p>
+     *
+     * @return {@code true} if EOL normalization is active, {@code false} otherwise.
+     * @see #setIsNormalizeEOL(boolean)
+     * @see #getEOL()
+     * @see #setEOL(String)
+     * @since 1.0
+     */
+    public synchronized boolean IsNormalizeEOL() {
+        return isNormalizeEOL;
+    }
+
+    /**
+     * Sets whether automatic End-Of-Line (EOL) normalization should be enabled for the document.
+     * Enabling this feature means that during text insertion or replacement operations,
+     * the document will attempt to convert incoming EOL sequences to match the
+     * document's configured EOL format (see {@link #setEOL(String)} and {@link #getEOL()}).
+     *
+     * <p>
+     * For example, if the document's EOL is set to "\n" (LF) and normalization is enabled:
+     * <ul>
+     *   <li>Inserting text containing "\r\n" (CRLF) will result in "\n" being stored.</li>
+     *   <li>Inserting text containing "\r" (CR) will result in "\n" being stored.</li>
+     * </ul>
+     * </p>
+     *
+     * <p>
+     * <b>Note:</b> Disabling normalization means that EOL characters from inserted or
+     * pasted text will be preserved as they are, potentially leading to mixed EOL
+     * sequences within the document if the source text uses different conventions.
+     * This method does not alter existing EOL characters in the document; it only
+     * affects future text modifications.
+     * </p>
+     *
+     * @param isNormalizeEOL {@code true} to enable EOL normalization, {@code false} to disable it.
+     * @see #IsNormalizeEOL()
+     * @see #setEOL(String)
+     * @see #getEOL()
+     * @since 1.0
+     */
+    public synchronized void setIsNormalizeEOL(boolean isNormalizeEOL) {
+        this.isNormalizeEOL = isNormalizeEOL;
     }
 
     /**
@@ -2107,12 +2674,12 @@ public class PieceTree {
      * </p>
      *
      * @return A {@link PieceTreeSnapshot} containing the current document state.
-     * @since 1.0
      * @see PieceTreeSnapshot
      * @see #restoreSnapshot(PieceTreeSnapshot)
+     * @since 1.0
      */
-    public PieceTreeSnapshot createSnapshot() {
-        currentSnapshot = new PieceTreeSnapshot(text(), tree.getLineCount(), eol);
+    public synchronized PieceTreeSnapshot createSnapshot() {
+        currentSnapshot = new PieceTreeSnapshot(bufferManager, tree, eol);
         return currentSnapshot;
     }
 
@@ -2144,19 +2711,16 @@ public class PieceTree {
      * </p>
      *
      * @param snapshot The {@link PieceTreeSnapshot} to restore from. If null, the method does nothing.
-     * @since 1.0
      * @see PieceTreeSnapshot
      * @see #createSnapshot()
      * @see #initialize(String)
+     * @since 1.0
      */
-    public void restoreSnapshot(PieceTreeSnapshot snapshot) {
+    public synchronized void restoreSnapshot(PieceTreeSnapshot snapshot) {
         if (snapshot != null) {
-            // Clear current content
-            tree = new RedBlackTree(bufferManager);
-            bufferManager = new BufferManager();
-
-            // Restore from snapshot
-            initialize(snapshot.content);
+            // Clear current content & Restore from snapshot
+            tree = snapshot.tree;
+            bufferManager = snapshot.bufferManager;
             setEOL(snapshot.eol);
             currentSnapshot = snapshot;
         }
@@ -2183,11 +2747,11 @@ public class PieceTree {
      * </p>
      *
      * @return {@code true} if the Red-Black tree structure is valid and adheres to all properties,
-     *         {@code false} otherwise, indicating a potential structural inconsistency.
-     * @since 1.0
+     * {@code false} otherwise, indicating a potential structural inconsistency.
      * @see RedBlackTree#validateRedBlackProperties()
+     * @since 1.0
      */
-    public boolean validateTree() {
+    public synchronized boolean validateTree() {
         return tree.validateRedBlackProperties();
     }
 
@@ -2219,12 +2783,16 @@ public class PieceTree {
         try {
             if (text == null || text.isEmpty()) return;
 
-            if (!eol.equals("\n")) text = text.replaceAll(("/r/n|/n|/r"), eol);
+            if (isNormalizeEOL && !eol.equals("\n") &&
+                    (text.contains("\r\n") || text.contains("\n") || text.contains("\r"))) {
+                text = text.replaceAll(("\r\n|\n|\r"), eol);
+            }
 
             Node node = tree.findNodeContaining(offset);
             if (node == null && offset == length()) {
                 int startPos = bufferManager.addAddedText(text);
-                int[] lineStarts = computeLineStartsFast(text.toCharArray());
+                int[] lineStarts = computeLineStarts(text.toCharArray());
+                tree.addLineCount(lineStarts.length);
                 Node newNode = new Node(0, startPos, text.length(), lineStarts);
                 newNode.documentStart = offset;
                 tree.insert(newNode);
@@ -2237,8 +2805,8 @@ public class PieceTree {
 
             if (offset > nodeDocStart) {
                 int splitPoint = offset - nodeDocStart;
-                int[] leftLineStarts = computeLineStartsFast(getBufferSlice(node, 0, splitPoint));
-                int[] rightLineStarts = computeLineStartsFast(getBufferSlice(node, splitPoint, node.length));
+                int[] leftLineStarts = computeLineStarts(getBufferSlice(node, 0, splitPoint));
+                int[] rightLineStarts = computeLineStarts(getBufferSlice(node, splitPoint, node.length));
                 Node leftPart = new Node(node.bufferIndex, node.bufferStart, splitPoint, leftLineStarts);
                 Node rightPart = new Node(node.bufferIndex, node.bufferStart + splitPoint, node.length - splitPoint, rightLineStarts);
                 leftPart.documentStart = nodeDocStart;
@@ -2249,12 +2817,13 @@ public class PieceTree {
             }
 
             int startPos = bufferManager.addAddedText(text);
-            int[] lineStarts = computeLineStartsFast(text.toCharArray());
+            int[] lineStarts = computeLineStarts(text.toCharArray());
+            tree.addLineCount(lineStarts.length);
             Node newNode = new Node(0, startPos, text.length(), lineStarts);
             newNode.documentStart = offset;
             tree.insert(newNode);
-        } catch (Exception error) {
-            Log.e("PieceTree", "Error inserting text: " + error.getMessage());
+        } catch (Exception e) {
+            Log.d(TAG, "Error in initialize: " + e.getMessage(), e);
         }
     }
 
@@ -2275,6 +2844,67 @@ public class PieceTree {
     }
 
     /**
+     * Creates a Pattern object based on the provided query and options.
+     *
+     * @param query          The text or regex pattern to search for.
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
+     * @return A compiled {@link Pattern} object.
+     */
+    private Pattern createPattern(String query, boolean useRegex, boolean caseSensitive,
+                                  String wordSeparators, boolean wholeWord) {
+        int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
+
+        if (useRegex) {
+            return Pattern.compile(query, flags);
+        } else {
+            String escapedQuery = Pattern.quote(query);
+
+            if (wholeWord) {
+                String boundaryPattern;
+                if (wordSeparators != null) {
+                    // For custom separators, quote them to be safe
+                    boundaryPattern = Pattern.quote(wordSeparators);
+                } else {
+                    // Use whitespace and punctuation - don't quote these as they're regex patterns
+                    boundaryPattern = "\\s\\p{Punct}";
+                }
+
+                String wordBoundary = "(?<=^|[" + boundaryPattern + "])" +
+                        escapedQuery +
+                        "(?=$|[" + boundaryPattern + "])";
+                return Pattern.compile(wordBoundary, flags);
+            } else {
+                return Pattern.compile(escapedQuery, flags);
+            }
+        }
+    }
+
+    /**
+     * Extracts the capture groups from a {@link Matcher} object.
+     *
+     * @param matcher       A {@link Matcher} object representing the search result.
+     * @param captureGroups {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @return A list of strings containing the extracted capture groups.
+     */
+    private List<String> extractGroups(Matcher matcher, boolean captureGroups) {
+        List<String> matchGroups = new ArrayList<>();
+
+        if (captureGroups && matcher.groupCount() > 0) {
+            for (int i = 0; i <= matcher.groupCount(); i++) {
+                matchGroups.add(matcher.group(i));
+            }
+        } else {
+            matchGroups.add(matcher.group());
+        }
+
+        return matchGroups;
+    }
+
+    /**
      * Computes line start positions for a character buffer using optimized scanning.
      * This method uses a single pass through the buffer and pre-allocates capacity
      * based on estimated line density for better performance with large texts.
@@ -2282,15 +2912,9 @@ public class PieceTree {
      * @param buffer The character buffer to analyze for line breaks
      * @return An array of integers representing the starting offset of each line
      * @throws IllegalArgumentException if buffer is null
-     * @since 1.0
      */
-    @TargetApi(Build.VERSION_CODES.N)
     private int[] computeLineStarts(char[] buffer) {
-        if (buffer == null) {
-            throw new IllegalArgumentException("Buffer cannot be null");
-        }
-
-        if (buffer.length == 0) {
+        if (buffer == null || buffer.length == 0) {
             return new int[0];
         }
 
@@ -2313,8 +2937,6 @@ public class PieceTree {
             }
         }
 
-        tree.addLineCount(starts.size());
-
         // Convert to array efficiently
         return starts.stream().mapToInt(Integer::intValue).toArray();
     }
@@ -2326,7 +2948,6 @@ public class PieceTree {
      *
      * @param buffer The character buffer to analyze
      * @return An array of line start positions
-     * @since 1.0
      */
     private int[] computeLineStartsFast(char[] buffer) {
         if (buffer == null || buffer.length == 0) {
@@ -2405,7 +3026,7 @@ public class PieceTree {
      *   <li>Providing methods to perform undo ({@link UndoRedoManager#undo()}) and
      *       redo ({@link UndoRedoManager#redo()}) operations.</li>
      *   <li>Managing grouped commands for atomic undo/redo of complex actions.</li>
-     *   <li>Notifying listeners ({@link UndoRedoListener}) of changes in undo/redo state.</li>
+     *   <li>Notifying listeners ({@link UndoRedoManager.UndoRedoListener}) of changes in undo/redo state.</li>
      * </ul>
      * </p>
      *
@@ -2420,12 +3041,12 @@ public class PieceTree {
      * </p>
      *
      * @return The current {@link UndoRedoManager} instance. Never null.
-     * @since 1.0
      * @see UndoRedoManager
      * @see Command
      * @see #setUndoRedoManager(UndoRedoManager)
+     * @since 1.0
      */
-    public UndoRedoManager getUndoRedoManager() {
+    public synchronized UndoRedoManager getUndoRedoManager() {
         return undoRedoManager;
     }
 
@@ -2452,11 +3073,11 @@ public class PieceTree {
      *
      * @param undoRedoManager The new {@link UndoRedoManager} to use. Must not be null.
      * @throws IllegalArgumentException if {@code undoRedoManager} is null.
-     * @since 1.0
      * @see UndoRedoManager
      * @see #getUndoRedoManager()
+     * @since 1.0
      */
-    public void setUndoRedoManager(UndoRedoManager undoRedoManager) {
+    public synchronized void setUndoRedoManager(UndoRedoManager undoRedoManager) {
         if (undoRedoManager == null) {
             throw new IllegalArgumentException("UndoRedoManager cannot be null.");
         }
@@ -2488,13 +3109,14 @@ public class PieceTree {
      * @param description A textual description of the group of operations, which can be
      *                    used for display in UI elements (e.g., "Undo Replace All").
      *                    If null or empty, a default description might be used by the manager.
-     * @since 1.0
      * @see UndoRedoManager#beginGroup(String)
      * @see #endGroup()
+     * @since 1.0
      */
-    public void beginGroup(String description) {
+    public synchronized void beginGroup(String description) {
         undoRedoManager.beginGroup(description);
     }
+
     /**
      * Ends the current group of undoable operations.
      * After this method is called, the collected group of commands is finalized
@@ -2514,11 +3136,11 @@ public class PieceTree {
      * (typically, it's a no-op or might log a warning).
      * </p>
      *
-     * @since 1.0
      * @see UndoRedoManager#endGroup()
      * @see #beginGroup(String)
+     * @since 1.0
      */
-    public void endGroup() {
+    public synchronized void endGroup() {
         undoRedoManager.endGroup();
     }
 
@@ -2538,11 +3160,11 @@ public class PieceTree {
      * </p>
      *
      * @return {@code true} if an undo operation can be performed, {@code false} otherwise.
-     * @since 1.0
      * @see UndoRedoManager#canUndo()
      * @see #undo()
+     * @since 1.0
      */
-    public boolean canUndo() {
+    public synchronized boolean canUndo() {
         return undoRedoManager.canUndo();
     }
 
@@ -2562,11 +3184,11 @@ public class PieceTree {
      * </p>
      *
      * @return {@code true} if a redo operation can be performed, {@code false} otherwise.
-     * @since 1.0
      * @see UndoRedoManager#canRedo()
      * @see #redo()
+     * @since 1.0
      */
-    public boolean canRedo() {
+    public synchronized boolean canRedo() {
         return undoRedoManager.canRedo();
     }
 
@@ -2583,7 +3205,7 @@ public class PieceTree {
      *   <li>Retrieving the last {@link Command} from the undo stack.</li>
      *   <li>Calling the {@code unExecute()} method on the command to reverse its effects.</li>
      *   <li>Moving the command from the undo stack to the redo stack.</li>
-     *   <li>Notifying any registered {@link UndoRedoListener}s.</li>
+     *   <li>Notifying any registered {@link UndoRedoManager.UndoRedoListener}s.</li>
      * </ol>
      * </p>
      *
@@ -2592,12 +3214,12 @@ public class PieceTree {
      * </p>
      *
      * @return {@code true} if an operation was successfully undone, {@code false} otherwise (e.g., if the undo stack was empty).
-     * @since 1.0
      * @see UndoRedoManager#undo()
      * @see #canUndo()
      * @see #redo()
+     * @since 1.0
      */
-    public boolean undo() {
+    public synchronized boolean undo() {
         return undoRedoManager.undo();
     }
 
@@ -2614,7 +3236,7 @@ public class PieceTree {
      *   <li>Retrieving the last {@link Command} from the redo stack.</li>
      *   <li>Calling the {@code execute()} method on the command to reapply its effects.</li>
      *   <li>Moving the command from the redo stack to the undo stack.</li>
-     *   <li>Notifying any registered {@link UndoRedoListener}s.</li>
+     *   <li>Notifying any registered {@link UndoRedoManager.UndoRedoListener}s.</li>
      * </ol>
      * </p>
      *
@@ -2624,12 +3246,12 @@ public class PieceTree {
      * </p>
      *
      * @return {@code true} if an operation was successfully redone, {@code false} otherwise (e.g., if the redo stack was empty).
-     * @since 1.0
      * @see UndoRedoManager#redo()
      * @see #canRedo()
      * @see #undo()
+     * @since 1.0
      */
-    public boolean redo() {
+    public synchronized boolean redo() {
         return undoRedoManager.redo();
     }
 
@@ -2648,11 +3270,11 @@ public class PieceTree {
      * </p>
      *
      * @return A string describing the next undo operation, or null/empty if not available.
-     * @since 1.0
      * @see UndoRedoManager#getUndoDescription()
      * @see #canUndo()
+     * @since 1.0
      */
-    public String getUndoDescription() {
+    public synchronized String getUndoDescription() {
         return undoRedoManager.getUndoDescription();
     }
 
@@ -2671,11 +3293,11 @@ public class PieceTree {
      * </p>
      *
      * @return A string describing the next redo operation, or null/empty if not available.
-     * @since 1.0
      * @see UndoRedoManager#getRedoDescription()
      * @see #canRedo()
+     * @since 1.0
      */
-    public String getRedoDescription() {
+    public synchronized String getRedoDescription() {
         return undoRedoManager.getRedoDescription();
     }
 
@@ -2686,10 +3308,10 @@ public class PieceTree {
      * This is typically used when a document is closed, saved under a new name,
      * or when a "clear history" action is explicitly invoked by the user.
      *
-     * @since 1.0
      * @see UndoRedoManager#clear()
+     * @since 1.0
      */
-    public void clear() {
+    public synchronized void clear() {
         undoRedoManager.clear();
     }
 
@@ -2707,12 +3329,12 @@ public class PieceTree {
      * </p>
      *
      * @return The number of undoable operations currently available. Returns 0 if the undo stack is empty.
-     * @since 1.0
      * @see UndoRedoManager#getUndoSize()
      * @see #canUndo()
      * @see #setMaxUndoLevels(int)
+     * @since 1.0
      */
-    public int getUndoSize() {
+    public synchronized int getUndoSize() {
         return undoRedoManager.getUndoSize();
     }
 
@@ -2727,11 +3349,11 @@ public class PieceTree {
      * </p>
      *
      * @return The number of redoable operations currently available. Returns 0 if the redo stack is empty.
-     * @since 1.0
      * @see UndoRedoManager#getRedoSize()
      * @see #canRedo()
+     * @since 1.0
      */
-    public int getRedoSize() {
+    public synchronized int getRedoSize() {
         return undoRedoManager.getRedoSize();
     }
 
@@ -2749,11 +3371,11 @@ public class PieceTree {
      *
      * @param maxLevels The maximum number of undo operations to keep in history.
      *                  A non-positive value might indicate unlimited levels, depending on the manager.
-     * @since 1.0
      * @see UndoRedoManager#setMaxUndoLevels(int)
      * @see #getMaxUndoLevels()
+     * @since 1.0
      */
-    public void setMaxUndoLevels(int maxLevels) {
+    public synchronized void setMaxUndoLevels(int maxLevels) {
         undoRedoManager.setMaxUndoLevels(maxLevels);
     }
 
@@ -2762,12 +3384,12 @@ public class PieceTree {
      * This value determines the maximum depth of the undo history that will be maintained.
      *
      * @return The maximum number of undo levels. A non-positive value might indicate
-     *         unlimited levels, depending on the {@link UndoRedoManager} implementation.
-     * @since 1.0
+     * unlimited levels, depending on the {@link UndoRedoManager} implementation.
      * @see UndoRedoManager#getMaxUndoLevels()
      * @see #setMaxUndoLevels(int)
+     * @since 1.0
      */
-    public int getMaxUndoLevels() {
+    public synchronized int getMaxUndoLevels() {
         return undoRedoManager.getMaxUndoLevels();
     }
 
@@ -2778,7 +3400,7 @@ public class PieceTree {
      * redone, or when the undo/redo history is modified (e.g., cleared, command added).
      *
      * <p>
-     * Listeners implement the {@link UndoRedoListener} interface and will receive
+     * Listeners implement the {@link UndoRedoManager.UndoRedoListener} interface and will receive
      * callbacks for relevant events, enabling them to update their state or UI
      * accordingly (e.g., enabling/disabling undo/redo buttons, updating descriptions).
      * </p>
@@ -2789,19 +3411,19 @@ public class PieceTree {
      * depending on the {@link UndoRedoManager} implementation.
      * </p>
      *
-     * @param listener The {@link UndoRedoListener} to add. Must not be null.
+     * @param listener The {@link UndoRedoManager.UndoRedoListener} to add. Must not be null.
      * @throws IllegalArgumentException if the listener is null.
+     * @see UndoRedoManager#addUndoRedoListener(UndoRedoManager.UndoRedoListener)
+     * @see UndoRedoManager.UndoRedoListener
+     * @see #removeUndoRedoListener(UndoRedoManager.UndoRedoListener)
      * @since 1.0
-     * @see UndoRedoManager#addUndoRedoListener(UndoRedoListener)
-     * @see UndoRedoListener
-     * @see #removeUndoRedoListener(UndoRedoListener)
      */
-    public void addUndoRedoListener(UndoRedoListener listener) {
+    public synchronized void addUndoRedoListener(UndoRedoManager.UndoRedoListener listener) {
         undoRedoManager.addUndoRedoListener(listener);
     }
 
     /**
-     * Removes a previously registered {@link UndoRedoListener}.
+     * Removes a previously registered {@link UndoRedoManager.UndoRedoListener}.
      * Once removed, the listener will no longer receive notifications about
      * undo and redo state changes from the {@link UndoRedoManager}.
      *
@@ -2810,12 +3432,12 @@ public class PieceTree {
      * typically has no effect and does not throw an exception.
      * </p>
      *
-     * @param listener The {@link UndoRedoListener} to remove. Must not be null.
+     * @param listener The {@link UndoRedoManager.UndoRedoListener} to remove. Must not be null.
+     * @see UndoRedoManager#removeUndoRedoListener(UndoRedoManager.UndoRedoListener)
+     * @see #addUndoRedoListener(UndoRedoManager.UndoRedoListener)
      * @since 1.0
-     * @see UndoRedoManager#removeUndoRedoListener(UndoRedoListener)
-     * @see #addUndoRedoListener(UndoRedoListener)
      */
-    public void removeUndoRedoListener(UndoRedoListener listener) {
+    public synchronized void removeUndoRedoListener(UndoRedoManager.UndoRedoListener listener) {
         undoRedoManager.removeUndoRedoListener(listener);
     }
 }

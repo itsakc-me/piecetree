@@ -14,18 +14,18 @@ PieceTree is designed to manage text buffers efficiently in applications like te
 ## Peeks
 ### NOTE: The File used here in order to test is [Russian English Bilingual dictionary](https://github.com/titoBouzout/Dictionaries/blob/master/Russian-English%20Bilingual.dic).
 
-<div align="center">
-
 - These Peeks are tested on a AVD (Android Virtual Device), having Ram of 2GiB.
 ![Peek 1](/peeks/piecetree_peek_1.png)
 ![Peek 2](/peeks/piecetree_peek_2.png)
 
 - These Peeks is tested on a Real Device, having Ram of 3GiB.
-- NOTE: This device is really old and laggy, you can't even use Google to search on it without having lag.
+- NOTE: This device is really old (nearly 6 years) and laggy, you can't even use Google to search on it without having lag.
 ![Peek 3](/peeks/piecetree_peek_3.png)
 ![Peek 4](/peeks/piecetree_peek_4.png)
 
-</div>
+- For testing and checking the difference between older version and new version see these, these are the Peeks of version 1.0 PieceTree and above are the Peeks of version 1.1 PieceTree / Latest.
+![Peek Comparing 1](/peeks/piecetree_peek_comparing_1.png)
+![Peek Comparing 2](/peeks/piecetree_peek_comparing_2.png)
 
 ---
 
@@ -84,25 +84,28 @@ PieceTree is tailored for Android development, addressing memory limitations:
 The PieceTree library is organized under the `io.itsakc.piecetree` package, with the following key classes:
 
 | **File Name**              | **Description**                                   |
-|----------------------------|--------------------------------------------------|
-| `PieceTree.java`           | Core class for text management and API.          |
-| `BufferManager.java`       | Manages text buffers for memory efficiency.      |
-| `UndoRedoManager.java`     | Handles undo and redo operations with grouping.  |
-| `RedBlackTree.java`        | Implements the Red-Black Tree for piece ordering.|
-| `Position.java`            | Represents a position with line and column.      |
-| `Range.java`               | Represents a text range with start and end.      |
-| `FindMatch.java`           | Represents a search match with details.          |
-| `PieceTreeSnapshot.java`   | Captures document states for snapshots.          |
+|----------------------------|---------------------------------------------------|
+| `PieceTree.java`           | Core class for text management and API.           |
+| `BufferManager.java`       | Manages text buffers for memory efficiency.       |
+| `UndoRedoManager.java`     | Handles undo and redo operations with grouping.   |
+| `RedBlackTree.java`        | Implements the Red-Black Tree for piece ordering. |
+| `Position.java`            | Represents a position with line and column.       |
+| `Range.java`               | Represents a text range with start and end.       |
+| `FindMatch.java`           | Represents a search match with details.           |
+| `PieceTreeSnapshot.java`   | Captures document states for snapshots.           |
 | `Node.java`                | Defines the node structure for the Red-Black Tree.|
 
 ## API Overview
-PieceTree provides a flexible API with methods supporting both line/column coordinates (1-based, for user interfaces) and document offsets (0-based, for efficiency). Key methods include:
-- NOTE: Any offset in API is 0-based and line, and column number is 1-based.
+PieceTree provides a flexible API with methods supporting both line/column coordinates (1-based, for user interfaces) and document offsets (0-based, for efficiency).
+- NOTE: Any offset in API is 0-based and line/column are 1-based.
+- NOTE: API with searching functionalities and doesn't take `wholeWord` parameter, assume it as `true` for the search.
 
 ### Initialization
 - `PieceTree()`: Creates a new instance.
 - `initialize(String initialText)`: Initializes with text.
+- `initialize(String initialText, boolean normalizeEOL, EOLNormalization eolNormalization)`: Initializes with text, whether to enable auto `normalize` and set EOL normalization.
 - `initialize(File file)`: Loads text from a file.
+- `initialize(File file, boolean normalizeEOL, EOLNormalization eolNormalization)`: Loads text from a file, whether to enable auto `normalize` and set EOL normalization.
 
 - `reset()`: Resets the PieceTree to an empty state.
 
@@ -119,9 +122,13 @@ PieceTree provides a flexible API with methods supporting both line/column coord
     - `replace(int startLineNumber, int startColumn, int endLineNumber, int endColumn, String replacement)`: Replaces a range by line/column.
     - `replace(int startOffset, int endOffset, String replacement)`: Replaces a range by offset.
     - `replace(String regex, String replacement`: Replace the first match of the pattern.
-    - `replace(CharSequence literal, String replacement`: Replace the first of the literal.
-    - `replaceAll(CharSequence literal, String replacement`: Replaces all matches of the literal.
-    - `replaceAll(String regex, String replacement)`: Replaces all matches of the pattern.
+    - `replace(String regex, boolean wholeWord, String replacement)`: Replace the first match of the pattern while obeying `wholeWord`.
+    - `replace(String query, int startOffset, boolean useRegex, String replacement)`: Replace the first match of query from `startOffset`.
+    - `replace(String query, int startOffset, boolean useRegex, boolean wholeWord, String replacement)`: Replace the first match of query from `startOffset` while obeying `wholeWord`.
+    - `replaceAll(String regex, String replacement, int maxReplace)`: Replaces all matches of the pattern till `maxReplace`.
+    - `replaceAll(String regex, boolean wholeWord, String replacement, int maxReplace)`: Replaces all matches of the pattern till `maxReplace` while obeying `wholeWord`.
+    - `replaceAll(String query, int startOffset, boolean useRegex, String replacement, int maxReplace)`: Replaces all matches of the query from `startOffset` till `maxReplace`.
+    - `replaceAll(String query, int startOffset, boolean useRegex, boolean wholeWord, String replacement, int maxReplace)`: Replaces all matches of the query from `startOffset` till `maxReplace` while obeying `wholeWord`.
 
 ### Content Retrieval
 - `text()`: Returns the entire text.
@@ -134,11 +141,16 @@ PieceTree provides a flexible API with methods supporting both line/column coord
 - `offsetAt(int lineNumber, int column)`: Converts line/column to offset.
 
 ### Search
-- `findMatches(String query, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds all matches.
+- `findMatches(String query, int startOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, int maxMatch)`: Finds all matches from `startOffset` till `maxMatch`.
+- `findMatches(String query, int startOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord, int maxMatch)`: Finds all matches from `startOffset` till `maxMatch` while obeying `wholeWord`.
 - `findNext(String query, Position startPos, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds next match by position.
+- `findNext(String query, Position startPos, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord)`: Finds next match by position while obeying `wholeWord`.
 - `findNext(String query, int startOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds next match by offset.
+- `findNext(String query, int startOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord)`: Finds next match by offset while obeying `wholeWord`.
 - `findPrevious(String query, Position endPos, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds previous match by position.
+- `findPrevious(String query, Position endPos, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord)`: Finds previous match by position while obeying `wholeWord`.
 - `findPrevious(String query, int endOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds previous match by offset.
+- `findPrevious(String query, int endOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord)`: Finds previous match by offset while obeying `wholeWord`.
 
 ### Undo/Redo
 - `getUndoRedoManager()`: Returns the UndoRedoManager.
@@ -156,8 +168,8 @@ PieceTree provides a flexible API with methods supporting both line/column coord
 - `getRedoSize()`: Returns the size of redo stack.
 - `setMaxUndoLevels(int maxLevels)`: Sets the maximum number of undo levels.
 - `getMaxUndoLevels()`: Returns the maximum number of undo levels.
-- `addUndoRedoListener(UndoRedoListener listener)`: Adds a listener for undo/redo events.
-- `removeUndoRedoListener(UndoRedoListener listener)`: Removes a listener from the List of UndoRedoManager.
+- `addUndoRedoListener(UndoRedoManager.UndoRedoListener listener)`: Adds a listener for undo/redo events.
+- `removeUndoRedoListener(UndoRedoManager.UndoRedoListener listener)`: Removes a listener from the List of UndoRedoManager.
 
 ### Snapshots
 - `createSnapshot()`: Captures the current state.
@@ -166,6 +178,8 @@ PieceTree provides a flexible API with methods supporting both line/column coord
 ### EOL Management
 - `getEOL()`: Returns the current EOL sequence.
 - `setEOL(String eol)`: Sets the EOL sequence.
+- `isNormalizeEOL()`: Returns whether EOL normalization is enabled.
+- `setNormalizeEOL(boolean normalizeEOL)`: Enables or disables EOL normalization.
 
 ## Usage Examples
 
@@ -227,7 +241,7 @@ public class AdvancedExample {
 4. Start importing the necessary classes for your need and you are good to go.
 
 ## Dependencies
-PieceTree is a standalone Java library with no external dependencies, making it easy to integrate into Android projects.
+PieceTree is a standalone and fully built from mostly scratch (only Android Utilities), Java library with no external dependencies, making it easy to integrate into Android projects.
 
 ## Contributing
 Contributions are welcome! Submit issues or pull requests on the [GitHub repository](https://github.com/itsakc-me/piecetree). Suggestions for improving performance, adding features, or enhancing documentation are appreciated.

@@ -97,7 +97,8 @@ public class UndoRedoManager {
         }
 
         // Execute the command
-        command.execute();
+        boolean result = command.execute();
+        if (!result) return;
 
         // Add to appropriate stack based on grouping
         if (groupLevel > 0 && currentGroup != null) {
@@ -307,6 +308,21 @@ public class UndoRedoManager {
                     getUndoDescription(), getRedoDescription());
         }
     }
+
+    /**
+     * Listener interface for undo/redo state changes
+     */
+    public interface UndoRedoListener {
+        /**
+         * Called when the undo/redo state changes
+         * @param canUndo Whether undo is currently possible
+         * @param canRedo Whether redo is currently possible
+         * @param undoDescription Description of next undo operation (or null)
+         * @param redoDescription Description of next redo operation (or null)
+         */
+        void undoRedoStateChanged(boolean canUndo, boolean canRedo,
+                                  String undoDescription, String redoDescription);
+    }
 }
 
 /**
@@ -315,8 +331,9 @@ public class UndoRedoManager {
 interface Command {
     /**
      * Executes the command
+     * @return true if successful, false if not
      */
-    void execute();
+    boolean execute();
 
     /**
      * Undoes the command (reverses its effect)
@@ -366,11 +383,12 @@ class CompositeCommand implements Command {
     }
 
     @Override
-    public void execute() {
+    public boolean execute() {
         // Execute all commands in order
         for (Command command : commands) {
             command.execute();
         }
+        return true;
     }
 
     @Override
@@ -381,7 +399,6 @@ class CompositeCommand implements Command {
         }
     }
 
-    @Override
     public String getDescription() {
         return description;
     }
@@ -394,23 +411,6 @@ class CompositeCommand implements Command {
         return commands.size();
     }
 }
-
-/**
- * Listener interface for undo/redo state changes
- */
-interface UndoRedoListener {
-    /**
-     * Called when the undo/redo state changes
-     * @param canUndo Whether undo is currently possible
-     * @param canRedo Whether redo is currently possible
-     * @param undoDescription Description of next undo operation (or null)
-     * @param redoDescription Description of next redo operation (or null)
-     */
-    void undoRedoStateChanged(boolean canUndo, boolean canRedo,
-                              String undoDescription, String redoDescription);
-}
-
-// Example concrete commands for text editing operations
 
 /**
  * Command for inserting text at a specific position
@@ -427,8 +427,9 @@ class InsertTextCommand implements Command {
     }
 
     @Override
-    public void execute() {
+    public boolean execute() {
         pieceTree.doInsert(position, text);
+        return true;
     }
 
     @Override
@@ -438,7 +439,7 @@ class InsertTextCommand implements Command {
 
     @Override
     public String getDescription() {
-        return "Inserted Text :- Pos = " + position + " | Text = " + text;
+        return "Insert Text";
     }
 }
 
@@ -458,22 +459,23 @@ class DeleteTextCommand implements Command {
     }
 
     @Override
-    public void execute() {
+    public boolean execute() {
         // Store the text being deleted for undo
         deletedText = pieceTree.textRange(startPosition, endPosition);
         pieceTree.doDelete(startPosition, endPosition);
+        return deletedText != null && !deletedText.isEmpty();
     }
 
     @Override
     public void undo() {
-        if (deletedText != null) {
+        if (deletedText != null && !deletedText.isEmpty()) {
             pieceTree.doInsert(startPosition, deletedText);
         }
     }
 
     @Override
     public String getDescription() {
-        return "Deleted Text :- Pos = start - " + startPosition + ", end - " + endPosition + " | Text = " + deletedText;
+        return "Delete Text";
     }
 }
 
@@ -487,8 +489,7 @@ class ReplaceTextCommand implements Command {
     private final String newText;
     private String originalText; // Store for undo
 
-    public ReplaceTextCommand(PieceTree pieceTree, int startPosition,
-                              int endPosition, String newText) {
+    public ReplaceTextCommand(PieceTree pieceTree, int startPosition, int endPosition, String newText) {
         this.pieceTree = pieceTree;
         this.startPosition = startPosition;
         this.endPosition = endPosition;
@@ -496,21 +497,22 @@ class ReplaceTextCommand implements Command {
     }
 
     @Override
-    public void execute() {
+    public boolean execute() {
         // Store the original text for undo
         originalText = pieceTree.textRange(startPosition, endPosition);
         pieceTree.doReplace(startPosition, endPosition, newText);
+        return originalText != null && !originalText.isEmpty();
     }
 
     @Override
     public void undo() {
-        if (originalText != null) {
+        if (originalText != null && !originalText.isEmpty()) {
             pieceTree.doReplace(startPosition, startPosition + newText.length(), originalText);
         }
     }
 
     @Override
     public String getDescription() {
-        return "Replaced Text :- Pos = start - " + startPosition + ", end - " + endPosition + " | Text = " + newText;
+        return "Replace Text";
     }
 }

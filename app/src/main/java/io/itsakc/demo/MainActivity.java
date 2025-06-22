@@ -17,13 +17,13 @@ import android.os.Environment;
 import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.util.List;
 
 import io.itsakc.demo.databinding.ActivityMainBinding;
 import io.itsakc.piecetree.PieceTree;
@@ -56,61 +56,78 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         // INFO: All these codes below are for testing purpose of PieceTree only, this is not part of the demo.
-        // INFO: If you also want to debug and test PieceTree feel free to uncomment or do your stuff.
 
-//        if (checkPermissions()) {
-//            long startTimeMillis = System.currentTimeMillis();
-//            loadContent();
-//            long endTimeMillis = System.currentTimeMillis();
-//            textView.setText("Time taken to load the file : " + (endTimeMillis - startTimeMillis) / 1000.0);
-//        } else {
-//            requestPermissions();
-//        }
-//
-//        long startTimeMillis = System.currentTimeMillis();
-//        FindMatch match = pieceTree.findNext("надкалывать/27,32,30,30,52,87,92,106,53,88,93,107,28,33,31,31,54,89,94,108", 0, false, true, null, false);
-//        int pieceTreeLength = pieceTree.length();
-//        int pieceTreeLineCount = pieceTree.lineCount();
-//        String pieceTreeLineContentAt5 = pieceTree.lineContent(5);
-//        int pieceTreeOffsetAt510 = pieceTree.offsetAt(5, 10);
-//        Position pieceTreePositionAt5 = pieceTree.positionAt(5);
-//        String pieceTreeTextRange010 = pieceTree.textRange(0, 10);
-//        long endTimeMillis = System.currentTimeMillis();
-//        textView.append("\nPieceTree match : " + match.toString());
-//        textView.append("\nPieceTree length : " + pieceTreeLength);
-//        textView.append("\nPieceTree line count : " + pieceTreeLineCount);
-//        textView.append("\nPieceTree line content 5 : " + pieceTreeLineContentAt5);
-//        textView.append("\nPieceTree offset at line 5, column 10 : " + pieceTreeOffsetAt510);
-//        textView.append("\nPieceTree position at offset 5 : " + pieceTreePositionAt5);
-//        textView.append("\nPieceTree text range from start offset 0, end offset 10 : " + pieceTreeTextRange010);
-//        textView.append("\nTime taken to perform all these operations : " + (endTimeMillis - startTimeMillis) / 1000.0);
-//
-//        long dStartTimeMillis = System.currentTimeMillis();
-//        pieceTree.delete(0, pieceTree.length() - 1);
-//        long dEndTimeMillis = System.currentTimeMillis();
-//        textView.append("\nTime taken to delete, leaving last char only : " + (dEndTimeMillis - dStartTimeMillis) / 1000.0);
-//
-//        editText.addTextChangedListener(new TextWatcher() {
-//            @Override
-//            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-//
-//            }
-//
-//            @Override
-//            public void onTextChanged(CharSequence s, int start, int before, int count) {
-//                pieceTree.append(s.toString());
-//            }
-//
-//            @Override
-//            public void afterTextChanged(Editable s) {
-//                textView.setText(pieceTree.text());
-//            }
-//        });
-//
-//        button.setOnClickListener(v -> {
-//            pieceTree.delete(5, 10);
-//            textView.setText(pieceTree.text());
-//        });
+        if (checkPermissions()) {
+            long startTimeMillis = System.currentTimeMillis();
+            loadContent();
+            long endTimeMillis = System.currentTimeMillis();
+            textView.setText("Time taken to load the file : " + (endTimeMillis - startTimeMillis) / 1000.0 + "\n\n");
+        } else {
+            requestPermissions();
+        }
+
+        long startTimeMillis = System.currentTimeMillis();
+        List<FindMatch> matches = pieceTree.findMatches("36,33,49", 102292, false, true, null, false, false, 10);
+        FindMatch nextMatch = pieceTree.findNext("36,33,49", 102292, false, true, null, false, false);
+        FindMatch prevMatch = pieceTree.findPrevious("36,33,49", new Position(102292, 1), false, true, null, false);
+        int pieceTreeLength = pieceTree.length();
+        int pieceTreeLineCount = pieceTree.lineCount();
+        String pieceTreeLineContentAt5 = pieceTree.lineContent(5);
+        int pieceTreeOffsetAt510 = pieceTree.offsetAt(102292, 1);
+        Position pieceTreePositionAt5 = pieceTree.positionAt(102292);
+        String pieceTreeTextRange010 = pieceTree.textRange(5997, 6001);
+        long endTimeMillis = System.currentTimeMillis();
+        for (FindMatch match : matches) textView.append("\nPieceTree match (" + (matches.indexOf(match) + 1) + "), '36,33,49' from 102292 : " + pieceTree.positionAt(match.startOffset));
+        if (nextMatch != null) textView.append("\n\nPieceTree next match, '36,33,49' from 102292 : " + nextMatch);
+        if (prevMatch != null) textView.append("\nPieceTree previous match, '36,33,49' from 102292 : " + pieceTree.positionAt(prevMatch.startOffset));
+        textView.append("\n\nPieceTree length : " + pieceTreeLength);
+        textView.append("\nPieceTree line count : " + pieceTreeLineCount);
+        textView.append("\nPieceTree line content at 5 : " + pieceTreeLineContentAt5);
+        textView.append("\nPieceTree offset at [102292, 1] : " + pieceTreeOffsetAt510);
+        textView.append("\nPieceTree position at 102292 : " + pieceTreePositionAt5);
+        textView.append("\nPieceTree text range from 5997, 6001 : " + pieceTreeTextRange010);
+        textView.append("\n\nTime taken to perform all these operations : " + (endTimeMillis - startTimeMillis) / 1000.0);
+
+        long rStartTimeMillis = System.currentTimeMillis();
+        pieceTree.replaceAll("36,33,49", 0, false, false, "replaced text", 10);
+        long rEndTimeMillis = System.currentTimeMillis();
+        textView.append("\nTime taken to replace 10 matches : " + (rEndTimeMillis - rStartTimeMillis) / 1000.0 + "\n");
+
+        long iStartTimeMillis = System.currentTimeMillis();
+        String lastLine = "";
+        for (int i = 1; i <= pieceTree.lineCount(); i++) lastLine = pieceTree.lineContent(i);
+        long iEndTimeMillis = System.currentTimeMillis();
+        textView.append("\n" +  lastLine);
+        textView.append("\n\nTime taken to get all lines : " + (iEndTimeMillis - iStartTimeMillis) / 1000.0);
+
+        long dStartTimeMillis = System.currentTimeMillis();
+        pieceTree.delete(0, pieceTree.length()-1);
+        long dEndTimeMillis = System.currentTimeMillis();
+        textView.append("\n\nTime taken to delete, leaving last char only : " + (dEndTimeMillis - dStartTimeMillis) / 1000.0);
+
+        textView.append("\n\n\n***\n" + pieceTree.textRange(0, 1000) + "\n***");
+
+        editText.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                pieceTree.append(s.toString());
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                textView.setText(pieceTree.text());
+            }
+        });
+
+        button.setOnClickListener(v -> {
+            pieceTree.delete(5, 10);
+            textView.setText(pieceTree.text());
+        });
     }
 
     /**

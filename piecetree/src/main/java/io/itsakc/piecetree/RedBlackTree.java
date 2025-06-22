@@ -76,6 +76,9 @@ public class RedBlackTree {
      * @param newNode The node to insert.
      */
     public void insert(Node newNode) {
+        Node sNode = findNodeContaining(newNode.documentStart);
+        updateDocumentStartsFrom(sNode, newNode.documentStart + newNode.length);
+
         Node y = null;
         Node x = root;
 
@@ -205,7 +208,7 @@ public class RedBlackTree {
      * @param newStart The new documentStart value for the first node
      */
     private void updateDocumentStartsFrom(Node startNode, int newStart) {
-        if (startNode == null) return;
+        if (startNode == null || startNode.documentStart == newStart) return;
 
         int currentStart = newStart;
         Node current = startNode;
@@ -231,6 +234,8 @@ public class RedBlackTree {
      * @return The node containing the offset, or null if not found.
      */
     public Node findNodeContaining(int offset) {
+        if (offset == 0) return getFirst();
+
         Node current = root;
         while (current != null) {
             // Check if offset is within this node's range
@@ -257,6 +262,24 @@ public class RedBlackTree {
     }
 
     /**
+     * Gets the first node in the tree.
+     *
+     * @return The first node.
+     */
+    public Node getFirst() {
+        return getMinimum(root);
+    }
+
+    /**
+     * Gets the last node in the tree.
+     *
+     * @return The last node.
+     */
+    public Node getLast() {
+        return getMaximum(root);
+    }
+
+    /**
      * Validates whether the current tree satisfies all Red-Black Tree properties.
      *
      * <ul>
@@ -276,14 +299,20 @@ public class RedBlackTree {
         return validateRedBlackHelper(root) != -1;
     }
 
-    public void setLineCount(int lineCount) {
-        this.lineCount = lineCount;
-    }
-
+    /**
+     * Adds to the total number of lines in the document.
+     *
+     * @param lineCount The number of lines to add.
+     */
     public void addLineCount(int lineCount) {
         this.lineCount += lineCount;
     }
 
+    /**
+     * Gets the total number of lines in the document.
+     *
+     * @return The total line count.
+     */
     public int getLineCount() {
         return lineCount;
     }
@@ -457,6 +486,19 @@ public class RedBlackTree {
     private Node getMinimum(Node node) {
         while (node != null && node.left != null) {
             node = node.left;
+        }
+        return node;
+    }
+
+    /**
+     * Finds the node with the maximum start in a subtree.
+     *
+     * @param node The root of the subtree.
+     * @return The node with the maximum start.
+     */
+    private Node getMaximum(Node node) {
+        while (node != null && node.right != null) {
+            node = node.right;
         }
         return node;
     }

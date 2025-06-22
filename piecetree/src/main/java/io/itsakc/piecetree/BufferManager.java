@@ -41,11 +41,11 @@ import java.util.List;
  * @author <a href="https://github.com/itsakc-me">@itsakc.me</a>
  */
 public class BufferManager {
-    private List<char[]> originalBuffers; // List of original text buffers (64KB chunks)
+    private final List<char[]> originalBuffers; // List of original text buffers (64KB chunks)
     private char[] addBuffer; // Single growable buffer for added text
     private int addBufferLength; // Current used length of add buffer
     private static final int INITIAL_ADD_CAPACITY = 1024; // Initial add buffer size
-    private static final int ORIGINAL_BUFFER_SIZE = 64 * 1024; // 64KB per original buffer
+    public static final int ORIGINAL_BUFFER_SIZE = 64 * 1024; // 64KB per original buffer
 
     /**
      * Constructs a BufferManager with empty buffers.
@@ -124,18 +124,6 @@ public class BufferManager {
             return originalBuffers.get(bufferIndex - 1);
         }
         return null;
-    }
-
-    /**
-     * Gets the list of all buffers (add buffer at index 0, original buffers at 1+).
-     *
-     * @return The list of buffers.
-     */
-    public List<char[]> getBuffers() {
-        List<char[]> allBuffers = new ArrayList<>();
-        allBuffers.add(addBuffer);
-        allBuffers.addAll(originalBuffers);
-        return allBuffers;
     }
 
     /**
