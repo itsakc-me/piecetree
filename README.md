@@ -19,7 +19,7 @@ PieceTree is designed to manage text buffers efficiently in applications like te
 ![Peek 2](/peeks/piecetree_peek_2.png)
 
 - These Peeks is tested on a Real Device, having Ram of 3GiB.
-- NOTE: This device is really old (nearly 6 years) and laggy, you can't even use Google to search on it without having lag.
+- NOTE: This device is 6years old and laggy, you can't do anything without having lag.
 ![Peek 3](/peeks/piecetree_peek_3.png)
 ![Peek 4](/peeks/piecetree_peek_4.png)
 
