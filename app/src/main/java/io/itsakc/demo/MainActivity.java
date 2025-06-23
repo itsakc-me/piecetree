@@ -27,8 +27,8 @@ import java.util.List;
 
 import io.itsakc.demo.databinding.ActivityMainBinding;
 import io.itsakc.piecetree.PieceTree;
+import io.itsakc.piecetree.common.BufferPosition;
 import io.itsakc.piecetree.common.FindMatch;
-import io.itsakc.piecetree.common.Position;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -69,12 +69,12 @@ public class MainActivity extends AppCompatActivity {
         long startTimeMillis = System.currentTimeMillis();
         List<FindMatch> matches = pieceTree.findMatches("36,33,49", 102292, false, true, null, false, false, 10);
         FindMatch nextMatch = pieceTree.findNext("36,33,49", 102292, false, true, null, false, false);
-        FindMatch prevMatch = pieceTree.findPrevious("36,33,49", new Position(102292, 1), false, true, null, false);
+        FindMatch prevMatch = pieceTree.findPrevious("36,33,49", new BufferPosition(102292, 1), false, true, null, false);
         int pieceTreeLength = pieceTree.length();
         int pieceTreeLineCount = pieceTree.lineCount();
         String pieceTreeLineContentAt5 = pieceTree.lineContent(5);
-        int pieceTreeOffsetAt510 = pieceTree.offsetAt(102292, 1);
-        Position pieceTreePositionAt5 = pieceTree.positionAt(102292);
+        int pieceTreeOffsetAt510 = pieceTree.offsetAt(new BufferPosition(102292, 1));
+        BufferPosition pieceTreePositionAt5 = pieceTree.positionAt(102292);
         String pieceTreeTextRange010 = pieceTree.textRange(5997, 6001);
         long endTimeMillis = System.currentTimeMillis();
         for (FindMatch match : matches) textView.append("\nPieceTree match (" + (matches.indexOf(match) + 1) + "), '36,33,49' from 102292 : " + pieceTree.positionAt(match.startOffset));

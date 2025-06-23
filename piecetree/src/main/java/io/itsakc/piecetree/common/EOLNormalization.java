@@ -39,6 +39,9 @@ public enum EOLNormalization {
     /** No EOL normalization (leave as-is). */
     None,
 
+    /** Normalize all line endings to Mac-style CR ("\r") */
+    CR,
+
     /** Normalize all line endings to Unix-style LF ("\n"). */
     LF,
 

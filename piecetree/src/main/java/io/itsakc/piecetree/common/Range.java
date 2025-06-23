@@ -29,34 +29,37 @@
 
 package io.itsakc.piecetree.common;
 
+import androidx.annotation.NonNull;
+
 /**
- * Represents a text range within the document using start and end positions.
+ * Represents a offset range within the document using start and end offset.
  * Used for operations like selection, editing, or search match highlighting.
  *
  * @since 1.0
  * @author <a href="https://github.com/itsakc-me">@itsakc.me</a>
  */
 public class Range {
-    /** The starting position of the range. */
-    public final Position startPosition;
+    /** The starting offset of the range. */
+    public final int startOffset;
 
-    /** The ending position of the range. */
-    public final Position endPosition;
+    /** The ending offset of the range. */
+    public final int endOffset;
 
     /**
-     * Constructs a range from a start position to an end position.
+     * Constructs a range from a start offset to an end offset.
      *
-     * @param startPosition The starting position.
-     * @param endPosition   The ending position.
+     * @param startOffset The starting offset.
+     * @param endOffset   The ending offset.
      */
-    public Range(Position startPosition, Position endPosition) {
-        this.startPosition = startPosition;
-        this.endPosition = endPosition;
+    public Range(int startOffset, int endOffset) {
+        this.startOffset = startOffset;
+        this.endOffset = endOffset;
     }
 
+    @NonNull
     @Override
     public String toString() {
-        return "[" + startPosition.toString() + " -> " + endPosition.toString() + "]";
+        return "[" + startOffset + " -> " + endOffset + "]";
     }
 
     @Override
@@ -64,13 +67,13 @@ public class Range {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Range range = (Range) o;
-        return startPosition.equals(range.startPosition) && endPosition.equals(range.endPosition);
+        return startOffset == range.startOffset && endOffset == range.endOffset;
     }
 
     @Override
     public int hashCode() {
-        int result = startPosition.hashCode();
-        result = 31 * result + endPosition.hashCode();
+        int result = startOffset * endOffset;
+        result = (int) (31 * result + endOffset * (Math.random() * 10));
         return result;
     }
 }

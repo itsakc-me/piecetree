@@ -47,18 +47,18 @@ public class PieceTreeSnapshot {
     public RedBlackTree tree;
 
     /** End-of-line format used in the snapshot (e.g., "\n", "\r\n"). */
-    public String eol;
+    public EOLNormalization eolNormalization;
 
     /**
      * Constructs a snapshot of the current state.
      *
-     * @param bufferManager BufferManager containing the document content.
-     * @param tree          RedBlackTree containing the nodes.
-     * @param eol           EOL character(s) used.
+     * @param bufferManager     BufferManager containing the document content.
+     * @param tree              RedBlackTree containing the nodes.
+     * @param eolNormalization  EOL character(s) used.
      */
-    public PieceTreeSnapshot(BufferManager bufferManager, RedBlackTree tree, String eol) {
+    public PieceTreeSnapshot(BufferManager bufferManager, RedBlackTree tree, EOLNormalization eolNormalization) {
         this.bufferManager = bufferManager;
         this.tree = tree;
-        this.eol = eol;
+        this.eolNormalization = eolNormalization;
     }
 }

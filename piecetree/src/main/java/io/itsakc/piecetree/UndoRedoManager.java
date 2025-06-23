@@ -93,12 +93,14 @@ public class UndoRedoManager {
      */
     public void executeCommand(Command command) {
         if (command == null) {
-            throw new IllegalArgumentException("Command cannot be null");
+            return;
         }
 
         // Execute the command
-        boolean result = command.execute();
-        if (!result) return;
+        if (command.execute() == -1) {
+            clear(); // If the command execution got failed by one of the reason like String OOM
+            return;
+        }
 
         // Add to appropriate stack based on grouping
         if (groupLevel > 0 && currentGroup != null) {
@@ -117,20 +119,23 @@ public class UndoRedoManager {
     /**
      * Starts a group of commands that will be treated as a single operation
      * @param description Description of the grouped operation
+     * @return true if the group was successfully started, false if not
      */
-    public void beginGroup(String description) {
+    public boolean beginGroup(String description) {
         groupLevel++;
         if (groupLevel == 1) {
             currentGroup = new CompositeCommand(description);
         }
+        return true;
     }
 
     /**
      * Ends the current command group
+     * @return true if group was successfully ended, false if not
      */
-    public void endGroup() {
+    public boolean endGroup() {
         if (groupLevel <= 0) {
-            throw new IllegalStateException("No group to end");
+            return false;
         }
 
         groupLevel--;
@@ -141,24 +146,26 @@ public class UndoRedoManager {
             currentGroup = null;
             notifyListeners();
         }
+
+        return true;
     }
 
     /**
      * Undoes the last command
-     * @return true if undo was successful, false if nothing to undo
+     * @return Position of the cursor after undo, -1 if nothing to undo
      */
-    public boolean undo() {
+    public int undo() {
         if (!canUndo()) {
-            return false;
+            return -1;
         }
 
         isExecuting = true;
         try {
             Command command = undoStack.pop();
-            command.undo();
+            int position = command.undo();
             redoStack.push(command);
             notifyListeners();
-            return true;
+            return position;
         } finally {
             isExecuting = false;
         }
@@ -166,20 +173,20 @@ public class UndoRedoManager {
 
     /**
      * Redoes the last undone command
-     * @return true if redo was successful, false if nothing to redo
+     * @return Position of the cursor after redo, -1 if nothing to redo
      */
-    public boolean redo() {
+    public int redo() {
         if (!canRedo()) {
-            return false;
+            return -1;
         }
 
         isExecuting = true;
         try {
             Command command = redoStack.pop();
-            command.execute();
+            int position = command.execute();
             undoStack.push(command);
             notifyListeners();
-            return true;
+            return position;
         } finally {
             isExecuting = false;
         }
@@ -331,14 +338,15 @@ public class UndoRedoManager {
 interface Command {
     /**
      * Executes the command
-     * @return true if successful, false if not
+     * @return the position of the cursor after execution
      */
-    boolean execute();
+    int execute();
 
     /**
      * Undoes the command (reverses its effect)
+     * @return the position of the cursor after undo
      */
-    void undo();
+    int undo();
 
     /**
      * Gets a human-readable description of the command
@@ -383,20 +391,23 @@ class CompositeCommand implements Command {
     }
 
     @Override
-    public boolean execute() {
+    public int execute() {
         // Execute all commands in order
+        int isExecuted = -1;
         for (Command command : commands) {
-            command.execute();
+            isExecuted = command.execute();
         }
-        return true;
+        return isExecuted;
     }
 
     @Override
-    public void undo() {
+    public int undo() {
         // Undo all commands in reverse order
+        int isUndone = -1;
         for (int i = commands.size() - 1; i >= 0; i--) {
-            commands.get(i).undo();
+            isUndone = commands.get(i).undo();
         }
+        return isUndone;
     }
 
     public String getDescription() {
@@ -427,14 +438,15 @@ class InsertTextCommand implements Command {
     }
 
     @Override
-    public boolean execute() {
+    public int execute() {
         pieceTree.doInsert(position, text);
-        return true;
+        return position + text.length();
     }
 
     @Override
-    public void undo() {
+    public int undo() {
         pieceTree.doDelete(position, position + text.length());
+        return position;
     }
 
     @Override
@@ -459,18 +471,20 @@ class DeleteTextCommand implements Command {
     }
 
     @Override
-    public boolean execute() {
+    public int execute() {
         // Store the text being deleted for undo
         deletedText = pieceTree.textRange(startPosition, endPosition);
         pieceTree.doDelete(startPosition, endPosition);
-        return deletedText != null && !deletedText.isEmpty();
+        return deletedText != null ? startPosition : -1;
     }
 
     @Override
-    public void undo() {
+    public int undo() {
         if (deletedText != null && !deletedText.isEmpty()) {
             pieceTree.doInsert(startPosition, deletedText);
+            return startPosition + deletedText.length();
         }
+        return -1;
     }
 
     @Override
@@ -497,18 +511,20 @@ class ReplaceTextCommand implements Command {
     }
 
     @Override
-    public boolean execute() {
+    public int execute() {
         // Store the original text for undo
         originalText = pieceTree.textRange(startPosition, endPosition);
         pieceTree.doReplace(startPosition, endPosition, newText);
-        return originalText != null && !originalText.isEmpty();
+        return originalText != null ? startPosition + newText.length() : -1;
     }
 
     @Override
-    public void undo() {
+    public int undo() {
         if (originalText != null && !originalText.isEmpty()) {
             pieceTree.doReplace(startPosition, startPosition + newText.length(), originalText);
+            return startPosition + originalText.length();
         }
+        return -1;
     }
 
     @Override

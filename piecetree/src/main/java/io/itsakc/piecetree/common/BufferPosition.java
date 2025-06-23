@@ -29,36 +29,39 @@
 
 package io.itsakc.piecetree.common;
 
+import androidx.annotation.NonNull;
+
 /**
  * Represents a position in the text buffer with line and column.
  *
  * @since 1.0
  * @author <a href="https://github.com/itsakc-me">@itsakc.me</a>
  */
-public class Position {
+public class BufferPosition {
     public final int lineNumber;
     public final int column;
 
-    public Position(int lineNumber, int column) {
+    public BufferPosition(int lineNumber, int column) {
         this.lineNumber = lineNumber;
         this.column = column;
     }
 
+    @NonNull
     @Override
     public String toString() {
-        return "(" + lineNumber + "," + column + ")";
+        return "(" + lineNumber + " , " + column + ")";
     }
 
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (obj == null || getClass() != obj.getClass()) return false;
-        Position position = (Position) obj;
+        BufferPosition position = (BufferPosition) obj;
         return lineNumber == position.lineNumber && column == position.column;
     }
 
     @Override
     public int hashCode() {
-        return lineNumber * 31 + column;
+        return (int) (lineNumber * 31 + column * (Math.random() * 10));
     }
 }

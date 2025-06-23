@@ -109,7 +109,7 @@ public class PieceTree {
      * <p>
      * The newly created PieceTree is ready for immediate use and supports all
      * text manipulation operations. The default end-of-line sequence is set to
-     * LF (\n) and can be changed using {@link #setEOL(String)}.
+     * LF (\n) and can be changed using {@link #setEOL(EOLNormalization)}.
      * </p>
      *
      * <p>
@@ -203,15 +203,14 @@ public class PieceTree {
      * </p>
      *
      * @param content          The initial content to load into the buffer. Can be null.
-     * @param normalizeEOL     Whether to normalize end-of-line characters.
      * @param eolNormalization The type of EOL normalization to apply.
      * @see EOLNormalization
-     * @see #setEOL(String)
+     * @see #setEOL(EOLNormalization)
      * @since 1.0
      */
-    public synchronized void initialize(String content, boolean normalizeEOL, EOLNormalization eolNormalization) {
-        if (normalizeEOL && content != null) {
-            isNormalizeEOL = true;
+    public synchronized void initialize(String content, EOLNormalization eolNormalization) {
+        isNormalizeEOL = true;
+        if (content != null) {
             switch (eolNormalization) {
                 case CRLF:
                     content = content.replaceAll("(\r\n|\n|\r)", "\r\n");
@@ -220,6 +219,10 @@ public class PieceTree {
                 case LF:
                     content = content.replaceAll("(\r\n|\r)", "\n");
                     this.eol = "\n";
+                    break;
+                case CR:
+                    content = content.replaceAll("(\r\n|\n)", "\r");
+                    this.eol = "\r";
                     break;
                 case None:
                 default:
@@ -233,6 +236,7 @@ public class PieceTree {
                     } else {
                         this.eol = "\n"; // Default
                     }
+                    isNormalizeEOL = false;
                     break;
             }
         }
@@ -257,11 +261,11 @@ public class PieceTree {
      * @param file The file to read content from. Must exist and be readable.
      * @throws OutOfMemoryError  if the file is too large to fit in available memory.
      * @throws SecurityException if file access is denied.
-     * @see #initialize(File, boolean, EOLNormalization)
+     * @see #initialize(File, EOLNormalization)
      * @since 1.0
      */
     public synchronized void initialize(File file) {
-        initialize(file, false, EOLNormalization.None);
+        initialize(file, EOLNormalization.None);
     }
 
     /**
@@ -286,7 +290,6 @@ public class PieceTree {
      * </p>
      *
      * @param file             The file to read content from. Must exist and be readable.
-     * @param normalizeEOL     Whether to normalize end-of-line characters.
      * @param eolNormalization The type of EOL normalization to apply.
      * @throws OutOfMemoryError  when the file is too large to fit in memory.
      * @throws SecurityException if file access permissions are insufficient.
@@ -294,21 +297,8 @@ public class PieceTree {
      * @see EOLNormalization
      * @since 1.0
      */
-    public synchronized void initialize(File file, boolean normalizeEOL, EOLNormalization eolNormalization) {
-        isNormalizeEOL = normalizeEOL;
-        if (normalizeEOL) {
-            switch (eolNormalization) {
-                case CRLF:
-                    this.eol = "\r\n";
-                    break;
-                case LF:
-                    this.eol = "\n";
-                    break;
-                case None:
-                default:
-                    break;
-            }
-        }
+    public synchronized void initialize(File file, EOLNormalization eolNormalization) {
+        setEOL(eolNormalization);
 
         String sb = "";
         FileReader fr = null;
@@ -323,7 +313,7 @@ public class PieceTree {
             while ((length = fr.read(buff)) > 0) {
                 sb = new String(buff);
 
-                if (normalizeEOL && eolNormalization != EOLNormalization.None) {
+                if (eolNormalization != EOLNormalization.None) {
                     sb = sb.replaceAll("(\r\n|\n|\r)", eol);
                 }
 
@@ -349,9 +339,9 @@ public class PieceTree {
             }
         }
 
-        if (normalizeEOL && !sb.isEmpty()) {
+        if (!sb.isEmpty()) {
             switch (eolNormalization) {
-                case CRLF, LF:
+                case CRLF, LF, CR:
                     break;
                 case None:
                 default:
@@ -427,17 +417,16 @@ public class PieceTree {
      * </ul>
      * </p>
      *
-     * @param lineNumber The line number where to insert (1-based). Must be ≥ 1.
-     * @param column     The column where to insert (1-based). Must be ≥ 1.
+     * @param position   The {@link BufferPosition} {@code startPosition} which contains the metadata of {@code lineNumber} and {@code column}.
      * @param text       The text to insert. Can contain line breaks for multi-line insertion.
      * @return Whether the insertion was successful.
      * @throws IllegalArgumentException if lineNumber or column is less than 1.
-     * @see #offsetAt(int, int)
+     * @see #offsetAt(BufferPosition)
      * @see InsertTextCommand
      * @since 1.0
      */
-    public synchronized boolean insert(int lineNumber, int column, String text) {
-        int offset = offsetAt(lineNumber, column);
+    public synchronized boolean insert(BufferPosition position, String text) {
+        int offset = offsetAt(position);
         return insert(offset, text);
     }
 
@@ -505,18 +494,16 @@ public class PieceTree {
      * </ul>
      * </p>
      *
-     * @param startLineNumber Start line number (1-based, inclusive).
-     * @param startColumn     Start column (1-based, inclusive).
-     * @param endLineNumber   End line number (1-based, inclusive).
-     * @param endColumn       End column (1-based, exclusive).
+     * @param startPosition   The {@link BufferPosition} {@code startPosition} which contains the metadata of starting {@code lineNumber} and {@code column}.
+     * @param endPosition     The {@link BufferPosition} {@code endPosition} which contains the metadata of ending {@code lineNumber} and {@code column}.
      * @return Whether the deletion was successful.
-     * @see #offsetAt(int, int)
+     * @see #offsetAt(BufferPosition)
      * @see DeleteTextCommand
      * @since 1.0
      */
-    public synchronized boolean delete(int startLineNumber, int startColumn, int endLineNumber, int endColumn) {
-        int startOffset = offsetAt(startLineNumber, startColumn);
-        int endOffset = offsetAt(endLineNumber, endColumn);
+    public synchronized boolean delete(BufferPosition startPosition, BufferPosition endPosition) {
+        int startOffset = offsetAt(startPosition);
+        int endOffset = offsetAt(endPosition);
         return delete(startOffset, endOffset); // Delegate to delete(int, int)
     }
 
@@ -588,19 +575,17 @@ public class PieceTree {
      * </ul>
      * </p>
      *
-     * @param startLineNumber Start line number (1-based, inclusive).
-     * @param startColumn     Start column (1-based, inclusive).
-     * @param endLineNumber   End line number (1-based, inclusive).
-     * @param endColumn       End column (1-based, exclusive).
+     * @param startPosition   The {@link BufferPosition} {@code startPosition} which contains the metadata of starting {@code lineNumber} and {@code column}.
+     * @param endPosition     The {@link BufferPosition} {@code endPosition} which contains the metadata of ending {@code lineNumber} and {@code column}.
      * @param replacement     The replacement text. Can be multi-line or empty.
      * @return Whether the replacement was successful.
      * @see ReplaceTextCommand
-     * @see #offsetAt(int, int)
+     * @see #offsetAt(BufferPosition)
      * @since 1.0
      */
-    public synchronized boolean replace(int startLineNumber, int startColumn, int endLineNumber, int endColumn, String replacement) {
-        int startOffset = offsetAt(startLineNumber, startColumn);
-        int endOffset = offsetAt(endLineNumber, endColumn);
+    public synchronized boolean replace(BufferPosition startPosition, BufferPosition endPosition, String replacement) {
+        int startOffset = offsetAt(startPosition);
+        int endOffset = offsetAt(endPosition);
         return replace(startOffset, endOffset, replacement);
     }
 
@@ -1158,13 +1143,11 @@ public class PieceTree {
     public synchronized String lineContent(int lineNumber) {
         try {
             if (lineNumber < 1 && lineNumber > lineCount()) {
-                throw new IllegalArgumentException("Line number must be 1 or greater and less than total line count!!");
+                throw new IllegalArgumentException("Line number must be 1 or greater or equals to total line count!!");
             }
 
             LinePosition linePos = findLinePosition(lineNumber);
-            if (linePos == null) {
-                return ""; // Line doesn't exist
-            }
+            if (linePos == null) return ""; // Line doesn't exist
 
             Node node = linePos.node;
             int lineStartOffset = node.documentStart + linePos.offsetInNode;
@@ -1202,7 +1185,29 @@ public class PieceTree {
         } catch (IllegalArgumentException e) {
             Log.d(TAG, "Error in lineContent: " + e.getMessage(), e);
         }
-        return null;
+        return "";
+    }
+
+    public synchronized Range lineRange(int lineNumber) {
+        try {
+            if (lineNumber < 1 && lineNumber > lineCount()) {
+                throw new IllegalArgumentException("Line number must be 1 or greater or equals to total line count!!");
+            }
+
+            LinePosition linePos = findLinePosition(lineNumber);
+            if (linePos == null) return new Range(-1, -1); // Line doesn't exist
+
+            Node node = linePos.node;
+            int lineStartOffset = node.documentStart + linePos.offsetInNode;
+
+            // Find the end of the line by looking for the next line start or end of content
+            int lineEndOffset = findLineEnd(node, linePos.offsetInNode);
+
+            return new Range(lineStartOffset, lineEndOffset);
+        } catch (IllegalArgumentException e) {
+            Log.d(TAG, "Error in lineRange: " + e.getMessage(), e);
+        }
+        return new Range(-1, -1);
     }
 
     /**
@@ -1272,23 +1277,21 @@ public class PieceTree {
      * </p>
      *
      * @param offset The 0-based character offset in the document.
-     * @return A {@link Position} object with 1-based line and column coordinates.
-     * Returns Position(1,1) for invalid offsets.
-     * @see Position
+     * @return A {@link BufferPosition} object with 1-based line and column coordinates.
+     * Returns BufferPosition(1,1) for invalid offsets.
+     * @see BufferPosition
      * @see Node#lineStarts
      * @see Node#left_subtree_lfcnt
      * @since 1.0
      */
-    public synchronized Position positionAt(int offset) {
+    public synchronized BufferPosition positionAt(int offset) {
         try {
             if (offset < 0 || offset > length()) {
-                return new Position(-1, -1); // Return default position for invalid offset
+                throw new IllegalArgumentException("Offset must be 0 or greater and less than document length!!");
             }
 
             Node node = tree.findNodeContaining(offset);
-            if (node == null) {
-                return new Position(-1, -1); // Should not happen if offset is valid
-            }
+            if (node == null) return new BufferPosition(-1, -1); // Should not happen if offset is valid
 
             int relativeOffset = offset - node.documentStart + 1;
 
@@ -1300,7 +1303,7 @@ public class PieceTree {
                     break;
                 }
             }
-            if (relativeOffset >= node.lineStarts[node.lineStarts.length - 1]) {
+            if (node.lineStarts.length > 0 && relativeOffset >= node.lineStarts[node.lineStarts.length - 1]) {
                 lineNumber = node.lineStarts.length;
             }
 
@@ -1322,11 +1325,11 @@ public class PieceTree {
             // Adjust for global line number using left subtree line count
             int globalLineNumber = currentLineCount + lineNumber;
 
-            return new Position(globalLineNumber, columnNumber);
-        } catch (Exception e) {
+            return new BufferPosition(globalLineNumber, columnNumber);
+        } catch (IllegalArgumentException e) {
             Log.d(TAG, "Error in positionAt: " + e.getMessage(), e);
         }
-        return null;
+        return new BufferPosition(-1, -1);
     }
 
     /**
@@ -1353,17 +1356,19 @@ public class PieceTree {
      * </ul>
      * </p>
      *
-     * @param lineNumber The target line number (1-based indexing). Must be ≥ 1.
-     * @param column     The target column number (1-based indexing). Must be ≥ 1.
+     * @param position The {@link BufferPosition} containing {@code lineNumber} and {@code column}.
      * @return The 0-based character offset corresponding to the position.
-     * Returns -1 if any error occur in duration.
+     *         Returns -1 if any error occur in duration.
      * @throws IllegalArgumentException if lineNumber or column is less than 1.
      * @see #findLinePosition(int)
      * @see LinePosition
      * @since 1.0
      */
-    public synchronized int offsetAt(int lineNumber, int column) {
+    public synchronized int offsetAt(BufferPosition position) {
         try {
+            int lineNumber = position.lineNumber;
+            int column = position.column;
+
             if (lineNumber < 1 || lineNumber > lineCount()) {
                 throw new IllegalArgumentException("Line number must be 1 or greater");
             }
@@ -1528,31 +1533,26 @@ public class PieceTree {
      * @since 1.0
      */
     private int findLineEnd(Node startNode, int startPosInNode) {
-        try {
-            Node currentNode = startNode;
-            int currentPos = startPosInNode;
+        Node currentNode = startNode;
+        int currentPos = startPosInNode;
 
-            while (currentNode != null) {
-                char[] buffer = bufferManager.getBuffer(currentNode.bufferIndex);
+        while (currentNode != null) {
+            char[] buffer = bufferManager.getBuffer(currentNode.bufferIndex);
 
-                for (int i = currentPos; i < currentNode.length; i++) {
-                    char ch = buffer[currentNode.bufferStart + i];
-                    if (ch == LineFeed || ch == CarriageReturn) {
-                        return currentNode.documentStart + i;
-                    }
+            for (int i = currentPos; i < currentNode.length; i++) {
+                char ch = buffer[currentNode.bufferStart + i];
+                if (ch == LineFeed || ch == CarriageReturn) {
+                    return currentNode.documentStart + i;
                 }
-
-                // Move to next node
-                currentNode = tree.getSuccessor(currentNode);
-                currentPos = 0; // Start from beginning of next node
             }
 
-            // Reached end of document
-            return length();
-        } catch (Exception e) {
-            Log.d(TAG, "Error in findLineEnd: " + e.getMessage(), e);
+            // Move to next node
+            currentNode = tree.getSuccessor(currentNode);
+            currentPos = 0; // Start from beginning of next node
         }
-        return -1;
+
+        // Reached end of document
+        return length();
     }
 
     /**
@@ -1618,6 +1618,86 @@ public class PieceTree {
         return lineContent(lineNumber).length();
     }
 
+    /**
+     * Retrieves the character at the specified {@link BufferPosition} in the document.
+     * This method translates the line and column based position into an absolute offset
+     * and then delegates to the offset-based {@link #charAt(int)} method for character retrieval.
+     *
+     * <p>
+     * This provides a convenient way to access characters using editor-like coordinates,
+     * abstracting the underlying offset management.
+     * </p>
+     *
+     * <p>
+     * Coordinate to Offset Conversion:
+     * <ol>
+     *   <li>The {@link BufferPosition} (line and column) is converted to an absolute character offset
+     *       within the document using the {@code offsetAt(BufferPosition)} method.</li>
+     *   <li>The resulting offset is then passed to {@link #charAt(int)}.</li>
+     * </ol>
+     * </p>
+     *
+     * @param position The {@link BufferPosition} specifying the line and column of the desired character.
+     *                 Must represent a valid position within the document.
+     * @return The character at the specified position. Returns the null character ('\0') if the
+     *         position is invalid, out of bounds, or if an internal error occurs during offset calculation
+     *         or character retrieval.
+     * @see #charAt(int)
+     * @see #offsetAt(BufferPosition)
+     * @since 1.1
+     */
+    public synchronized char charAt(BufferPosition position) {
+        return charAt(offsetAt(position));
+    }
+
+    /**
+     * Retrieves the character at the specified absolute offset within the document.
+     * This method performs an efficient lookup in the piece tree to locate the node
+     * containing the offset and then accesses the character from the corresponding buffer.
+     *
+     * <p>
+     * Lookup Process:
+     * <ol>
+     *   <li><b>Node Location:</b> The piece tree's {@code findNodeContaining(offset)} method is used
+     *       to identify the specific {@code Node} that stores the text segment for the given offset.</li>
+     *   <li><b>Buffer Access:</b> Once the node is found, the {@code BufferManager} provides access
+     *       to the underlying character buffer associated with that node.</li>
+     *   <li><b>Character Extraction:</b> The character is retrieved from the buffer at the calculated
+     *       position relative to the node's start within the document (offset - node.documentStart).</li>
+     * </ol>
+     * </p>
+     *
+     * <p>
+     * Error Handling:
+     * <ul>
+     *   <li>If the {@code offset} is out of the document's bounds or if the corresponding
+     *       node cannot be found, the null character ('\0') is returned.</li>
+     *   <li>Any {@link IndexOutOfBoundsException} during buffer access (which ideally should not
+     *       occur with correct offset and node location logic) is caught, logged, and
+     *       results in returning the null character.</li>
+     * </ul>
+     * </p>
+     *
+     * @param offset The 0-based character offset from the beginning of the document.
+     *               Must be non-negative and less than the document's length.
+     * @return The character at the specified offset. Returns the null character ('\0') if the
+     *         offset is out of bounds or if an error occurs.
+     * @see RedBlackTree#findNodeContaining(int) // Assuming 'tree' is an instance of RedBlackTree or similar
+     * @see BufferManager#getBuffer(int)
+     * @since 1.1
+     */
+    public synchronized char charAt(int offset) {
+        try {
+            Node node = tree.findNodeContaining(offset);
+            if (node == null) return '\0';
+            char[] buffer = bufferManager.getBuffer(node.bufferIndex);
+            int indexInNodeBuffer = node.bufferStart + (offset - node.documentStart);
+            return buffer[indexInNodeBuffer];
+        } catch (Exception e) {
+            Log.d(TAG, "Error in charAt: " + e.getMessage(), e);
+        }
+        return '\0';
+    }
 
     /**
      * Retrieves complete document text with custom end-of-line character conversion.
@@ -1637,22 +1717,25 @@ public class PieceTree {
      * <p>
      * Supported EOL Formats:
      * <ul>
-     *   <li>\n (LF) - Unix/Linux/macOS standard</li>
      *   <li>\r\n (CRLF) - Windows standard</li>
+     *   <li>\n (LF) - Unix/Linux/macOS standard</li>
      *   <li>\r (CR) - Classic Mac standard</li>
      * </ul>
      * </p>
      *
-     * @param eol The end-of-line character sequence to use. If null or same as current, no conversion is performed.
+     * @param eolNormalization The end-of-line character sequence to use. If same as current, no conversion is performed.
      * @return The complete document text with the specified EOL format.
      * @see #text()
      * @see #getEOL()
      * @since 1.0
      */
-    public synchronized String text(String eol) {
+    public synchronized String text(EOLNormalization eolNormalization) {
         String content = text();
-        if (eol != null && !eol.equals(this.eol)) {
-            return content.replaceAll("(\r\n|\n|\r)", eol);
+        if (eolNormalization == getEOL()) return content;
+        switch (eolNormalization) {
+            case CRLF -> content = content.replaceAll("(\r\n|\n|\r)", "\r\n");
+            case LF -> content = content.replaceAll("(\r\n|\r)", "\n");
+            case CR -> content = content.replaceAll("(\r\n|\n)", "\r");
         }
         return content;
     }
@@ -1742,18 +1825,16 @@ public class PieceTree {
      * </ul>
      * </p>
      *
-     * @param startLineNumber The starting line (1-based, inclusive).
-     * @param startColumn     The starting column (1-based, inclusive).
-     * @param endLineNumber   The ending line (1-based, inclusive).
-     * @param endColumn       The ending column (1-based, exclusive).
+     * @param startPosition   The {@link BufferPosition} {@code startPosition} which contains the metadata of starting {@code lineNumber} and {@code column}.
+     * @param endPosition     The {@link BufferPosition} {@code endPosition} which contains the metadata of ending {@code lineNumber} and {@code column}.
      * @return The text content in the specified coordinate range.
-     * @see #offsetAt(int, int)
+     * @see #offsetAt(BufferPosition)
      * @see #textRange(int, int)
      * @since 1.0
      */
-    public synchronized String textRange(int startLineNumber, int startColumn, int endLineNumber, int endColumn) {
-        int startOffset = offsetAt(startLineNumber, startColumn);
-        int endOffset = offsetAt(endLineNumber, endColumn);
+    public synchronized String textRange(BufferPosition startPosition, BufferPosition endPosition) {
+        int startOffset = offsetAt(startPosition);
+        int endOffset = offsetAt(endPosition);
         return textRange(startOffset, endOffset);
     }
 
@@ -2059,7 +2140,7 @@ public class PieceTree {
      * <p>
      * Operation Sequence:
      * <ol>
-     *   <li>Converts the {@link Position} parameter to a document offset using {@link #offsetAt(int, int)}.</li>
+     *   <li>Converts the {@link BufferPosition} parameter to a document offset using {@link #offsetAt(BufferPosition)}.</li>
      *   <li>Delegates to the offset-based {@code findNext} method with whole word matching enabled.</li>
      *   <li>Returns the first match found after the specified position, or {@code null} if none exists.</li>
      * </ol>
@@ -2068,7 +2149,7 @@ public class PieceTree {
      * <p>
      * Important Considerations:
      * <ul>
-     *   <li><b>Position Convenience:</b> Simplifies usage when working with line/column
+     *   <li><b>BufferPosition Convenience:</b> Simplifies usage when working with line/column
      *       coordinates instead of raw document offsets.</li>
      *   <li><b>Default Behavior:</b> Automatically enables whole word matching for
      *       more precise text search operations.</li>
@@ -2078,19 +2159,19 @@ public class PieceTree {
      * </p>
      *
      * @param query          The text or regex pattern to search for.
-     * @param startPos       The {@link Position} (line, column) from which to begin searching.
+     * @param startPos       The {@link BufferPosition} (line, column) from which to begin searching.
      * @param useRegex       {@code true} to treat {@code query} as a regular expression;
      *                       {@code false} for literal string matching.
      * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
      * @param wordSeparators String containing characters that define word boundaries.
      * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
      * @return A {@link FindMatch} object representing the next match found, or {@code null} if none exists.
-     * @see #findNext(String, Position, boolean, boolean, String, boolean, boolean)
+     * @see #findNext(String, BufferPosition, boolean, boolean, String, boolean, boolean)
      * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
-     * @see Position
+     * @see BufferPosition
      * @since 1.0
      */
-    public synchronized FindMatch findNext(String query, Position startPos, boolean useRegex,
+    public synchronized FindMatch findNext(String query, BufferPosition startPos, boolean useRegex,
                                            boolean caseSensitive, String wordSeparators,
                                            boolean captureGroups) {
         return findNext(query, startPos, useRegex, caseSensitive, wordSeparators,
@@ -2105,7 +2186,7 @@ public class PieceTree {
      * <p>
      * Operation Sequence:
      * <ol>
-     *   <li>Translates the {@link Position} coordinates to a document offset.</li>
+     *   <li>Translates the {@link BufferPosition} coordinates to a document offset.</li>
      *   <li>Invokes the offset-based {@code findNext} method with all specified parameters.</li>
      *   <li>Returns the search result maintaining all configured matching criteria.</li>
      * </ol>
@@ -2114,7 +2195,7 @@ public class PieceTree {
      * <p>
      * Important Considerations:
      * <ul>
-     *   <li><b>Position Flexibility:</b> Allows precise control over search starting
+     *   <li><b>BufferPosition Flexibility:</b> Allows precise control over search starting
      *       point using intuitive line and column coordinates.</li>
      *   <li><b>Word Boundary Control:</b> Configurable whole word matching provides
      *       fine-grained control over match precision.</li>
@@ -2124,7 +2205,7 @@ public class PieceTree {
      * </p>
      *
      * @param query          The text or regex pattern to search for.
-     * @param startPos       The {@link Position} (line, column) from which to begin searching.
+     * @param startPos       The {@link BufferPosition} (line, column) from which to begin searching.
      * @param useRegex       {@code true} to treat {@code query} as a regular expression;
      *                       {@code false} for literal string matching.
      * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
@@ -2132,15 +2213,15 @@ public class PieceTree {
      * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
      * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
      * @return A {@link FindMatch} object representing the next match found, or {@code null} if none exists.
-     * @see #findNext(String, Position, boolean, boolean, String, boolean)
+     * @see #findNext(String, BufferPosition, boolean, boolean, String, boolean)
      * @see #findNext(String, int, boolean, boolean, String, boolean, boolean)
-     * @see Position
+     * @see BufferPosition
      * @since 1.0
      */
-    public synchronized FindMatch findNext(String query, Position startPos, boolean useRegex,
+    public synchronized FindMatch findNext(String query, BufferPosition startPos, boolean useRegex,
                                            boolean caseSensitive, String wordSeparators,
                                            boolean captureGroups, boolean wholeWord) {
-        int startOffset = offsetAt(startPos.lineNumber, startPos.column);
+        int startOffset = offsetAt(startPos);
         return findNext(query, startOffset, useRegex, caseSensitive, wordSeparators, captureGroups, wholeWord);
     }
 
@@ -2300,7 +2381,7 @@ public class PieceTree {
      * <p>
      * Operation Sequence:
      * <ol>
-     *   <li>Converts the {@link Position} parameter to a document offset using {@link #offsetAt(int, int)}.</li>
+     *   <li>Converts the {@link BufferPosition} parameter to a document offset using {@link #offsetAt(BufferPosition)}.</li>
      *   <li>Delegates to the offset-based {@code findPrevious} method with whole word matching enabled.</li>
      *   <li>Returns the last match found before the specified position, or {@code null} if none exists.</li>
      * </ol>
@@ -2311,7 +2392,7 @@ public class PieceTree {
      * <ul>
      *   <li><b>Reverse Navigation:</b> Enables backward text navigation and search
      *       functionality essential for comprehensive text editing operations.</li>
-     *   <li><b>Position Convenience:</b> Simplifies usage when working with line/column
+     *   <li><b>BufferPosition Convenience:</b> Simplifies usage when working with line/column
      *       coordinates in text editor environments.</li>
      *   <li><b>Default Precision:</b> Automatically enables whole word matching for
      *       more accurate backward searching operations.</li>
@@ -2319,19 +2400,19 @@ public class PieceTree {
      * </p>
      *
      * @param query          The text or regex pattern to search for.
-     * @param endPos         The {@link Position} (line, column) before which to search.
+     * @param endPos         The {@link BufferPosition} (line, column) before which to search.
      * @param useRegex       {@code true} to treat {@code query} as a regular expression;
      *                       {@code false} for literal string matching.
      * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
      * @param wordSeparators String containing characters that define word boundaries.
      * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
      * @return A {@link FindMatch} object representing the previous match found, or {@code null} if none exists.
-     * @see #findPrevious(String, Position, boolean, boolean, String, boolean, boolean)
+     * @see #findPrevious(String, BufferPosition, boolean, boolean, String, boolean, boolean)
      * @see #findPrevious(String, int, boolean, boolean, String, boolean, boolean)
-     * @see Position
+     * @see BufferPosition
      * @since 1.0
      */
-    public synchronized FindMatch findPrevious(String query, Position endPos, boolean useRegex,
+    public synchronized FindMatch findPrevious(String query, BufferPosition endPos, boolean useRegex,
                                                boolean caseSensitive, String wordSeparators,
                                                boolean captureGroups) {
         return findPrevious(query, endPos, useRegex, caseSensitive, wordSeparators,
@@ -2346,7 +2427,7 @@ public class PieceTree {
      * <p>
      * Operation Sequence:
      * <ol>
-     *   <li>Translates the {@link Position} coordinates to a document offset.</li>
+     *   <li>Translates the {@link BufferPosition} coordinates to a document offset.</li>
      *   <li>Invokes the offset-based {@code findPrevious} method with all specified parameters.</li>
      *   <li>Returns the search result maintaining all configured matching criteria.</li>
      * </ol>
@@ -2357,7 +2438,7 @@ public class PieceTree {
      * <ul>
      *   <li><b>Backward Navigation:</b> Essential functionality for comprehensive text
      *       search and navigation in both directions through the document.</li>
-     *   <li><b>Position Precision:</b> Allows exact control over search endpoint
+     *   <li><b>BufferPosition Precision:</b> Allows exact control over search endpoint
      *       using intuitive line and column coordinates.</li>
      *   <li><b>Editor Integration:</b> Designed for seamless integration with text
      *       editors that require bidirectional search capabilities.</li>
@@ -2365,7 +2446,7 @@ public class PieceTree {
      * </p>
      *
      * @param query          The text or regex pattern to search for.
-     * @param endPos         The {@link Position} (line, column) before which to search.
+     * @param endPos         The {@link BufferPosition} (line, column) before which to search.
      * @param useRegex       {@code true} to treat {@code query} as a regular expression;
      *                       {@code false} for literal string matching.
      * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
@@ -2373,15 +2454,15 @@ public class PieceTree {
      * @param captureGroups  {@code true} to extract regex capture groups; {@code false} otherwise.
      * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
      * @return A {@link FindMatch} object representing the previous match found, or {@code null} if none exists.
-     * @see #findPrevious(String, Position, boolean, boolean, String, boolean)
+     * @see #findPrevious(String, BufferPosition, boolean, boolean, String, boolean)
      * @see #findPrevious(String, int, boolean, boolean, String, boolean, boolean)
-     * @see Position
+     * @see BufferPosition
      * @since 1.0
      */
-    public synchronized FindMatch findPrevious(String query, Position endPos, boolean useRegex,
+    public synchronized FindMatch findPrevious(String query, BufferPosition endPos, boolean useRegex,
                                                boolean caseSensitive, String wordSeparators,
                                                boolean captureGroups, boolean wholeWord) {
-        int endOffset = offsetAt(endPos.lineNumber, endPos.column);
+        int endOffset = offsetAt(endPos);
         return findPrevious(query, endOffset, useRegex, caseSensitive, wordSeparators, captureGroups, wholeWord);
     }
 
@@ -2529,6 +2610,67 @@ public class PieceTree {
         return null;
     }
 
+    /**
+     * Creates a Pattern object based on the provided query and options.
+     *
+     * @param query          The text or regex pattern to search for.
+     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
+     *                       {@code false} for literal string matching.
+     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
+     * @param wordSeparators String containing characters that define word boundaries.
+     * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
+     * @return A compiled {@link Pattern} object.
+     */
+    private Pattern createPattern(String query, boolean useRegex, boolean caseSensitive,
+                                  String wordSeparators, boolean wholeWord) {
+        int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
+
+        if (useRegex) {
+            return Pattern.compile(query, flags);
+        } else {
+            String escapedQuery = Pattern.quote(query);
+
+            if (wholeWord) {
+                String boundaryPattern;
+                if (wordSeparators != null) {
+                    // For custom separators, quote them to be safe
+                    boundaryPattern = Pattern.quote(wordSeparators);
+                } else {
+                    // Use whitespace and punctuation - don't quote these as they're regex patterns
+                    boundaryPattern = "\\s\\p{Punct}";
+                }
+
+                String wordBoundary = "(?<=^|[" + boundaryPattern + "])" +
+                        escapedQuery +
+                        "(?=$|[" + boundaryPattern + "])";
+                return Pattern.compile(wordBoundary, flags);
+            } else {
+                return Pattern.compile(escapedQuery, flags);
+            }
+        }
+    }
+
+    /**
+     * Extracts the capture groups from a {@link Matcher} object.
+     *
+     * @param matcher       A {@link Matcher} object representing the search result.
+     * @param captureGroups {@code true} to extract regex capture groups; {@code false} otherwise.
+     * @return A list of strings containing the extracted capture groups.
+     */
+    private List<String> extractGroups(Matcher matcher, boolean captureGroups) {
+        List<String> matchGroups = new ArrayList<>();
+
+        if (captureGroups && matcher.groupCount() > 0) {
+            for (int i = 0; i <= matcher.groupCount(); i++) {
+                matchGroups.add(matcher.group(i));
+            }
+        } else {
+            matchGroups.add(matcher.group());
+        }
+
+        return matchGroups;
+    }
+
     // UTILITY METHODS
 
     /**
@@ -2539,19 +2681,24 @@ public class PieceTree {
      * <p>
      * The EOL sequence is determined by:
      * <ol>
-     *   <li>Explicit setting via {@link #setEOL(String)}</li>
+     *   <li>Explicit setting via {@link #setEOL(EOLNormalization)}</li>
      *   <li>Auto-detection during document initialization</li>
      *   <li>Default LF (\n) format for new documents</li>
      * </ol>
      * </p>
      *
      * @return The current end-of-line character sequence.
-     * @see #setEOL(String)
+     * @see #setEOL(EOLNormalization)
      * @see EOLNormalization
      * @since 1.0
      */
-    public synchronized String getEOL() {
-        return eol;
+    public synchronized EOLNormalization getEOL() {
+        return switch (eol) {
+            case "\r\n" -> EOLNormalization.CRLF;
+            case "\n" -> EOLNormalization.LF;
+            case "\r" -> EOLNormalization.CR;
+            default -> EOLNormalization.None;
+        };
     }
 
     /**
@@ -2562,27 +2709,40 @@ public class PieceTree {
      * <p>
      * Supported EOL Formats:
      * <ul>
-     *   <li>"\n" (LF) - Unix/Linux/macOS standard</li>
      *   <li>"\r\n" (CRLF) - Windows standard</li>
+     *   <li>"\n" (LF) - Unix/Linux/macOS standard</li>
      *   <li>"\r" (CR) - Classic Mac standard</li>
      * </ul>
      * </p>
      *
      * <p>
      * <b>Note:</b> This method only affects future text operations.
-     * To convert existing content, use {@link #text(String)} to retrieve
+     * To convert existing content, use {@link #text(EOLNormalization)} to retrieve
      * text with the desired EOL format.
      * </p>
      *
-     * @param eol The new end-of-line character sequence.
+     * @param eolNormalization The new end-of-line character sequence.
      * @throws IllegalArgumentException if eol is null or empty.
      * @see #getEOL()
-     * @see #text(String)
+     * @see #text(EOLNormalization)
      * @since 1.0
      */
-    public synchronized void setEOL(String eol) {
-        if (eol != null && (eol.equals("\n") || eol.equals("\r\n") || eol.equals("\r"))) {
-            this.eol = eol;
+    public synchronized void setEOL(EOLNormalization eolNormalization) {
+        isNormalizeEOL = true;
+        switch (eolNormalization) {
+            case CRLF:
+                this.eol = "\r\n";
+                break;
+            case LF:
+                this.eol = "\n";
+                break;
+            case CR:
+                this.eol = "\r";
+                break;
+            case None:
+            default:
+                isNormalizeEOL = false;
+                break;
         }
     }
 
@@ -2607,7 +2767,7 @@ public class PieceTree {
      * @return {@code true} if EOL normalization is active, {@code false} otherwise.
      * @see #setIsNormalizeEOL(boolean)
      * @see #getEOL()
-     * @see #setEOL(String)
+     * @see #setEOL(EOLNormalization)
      * @since 1.0
      */
     public synchronized boolean IsNormalizeEOL() {
@@ -2618,7 +2778,7 @@ public class PieceTree {
      * Sets whether automatic End-Of-Line (EOL) normalization should be enabled for the document.
      * Enabling this feature means that during text insertion or replacement operations,
      * the document will attempt to convert incoming EOL sequences to match the
-     * document's configured EOL format (see {@link #setEOL(String)} and {@link #getEOL()}).
+     * document's configured EOL format (see {@link #setEOL(EOLNormalization)} and {@link #getEOL()}).
      *
      * <p>
      * For example, if the document's EOL is set to "\n" (LF) and normalization is enabled:
@@ -2638,7 +2798,7 @@ public class PieceTree {
      *
      * @param isNormalizeEOL {@code true} to enable EOL normalization, {@code false} to disable it.
      * @see #IsNormalizeEOL()
-     * @see #setEOL(String)
+     * @see #setEOL(EOLNormalization)
      * @see #getEOL()
      * @since 1.0
      */
@@ -2679,7 +2839,7 @@ public class PieceTree {
      * @since 1.0
      */
     public synchronized PieceTreeSnapshot createSnapshot() {
-        currentSnapshot = new PieceTreeSnapshot(bufferManager, tree, eol);
+        currentSnapshot = new PieceTreeSnapshot(bufferManager, tree, getEOL());
         return currentSnapshot;
     }
 
@@ -2695,7 +2855,7 @@ public class PieceTree {
      *   <li>Clears current document state by reinitializing the {@link RedBlackTree}
      *       and {@link BufferManager}.</li>
      *   <li>Rebuilds piece tree structure using the content from the snapshot via {@link #initialize(String)}.</li>
-     *   <li>Restores metadata such as the end-of-line (EOL) sequence using {@link #setEOL(String)}.</li>
+     *   <li>Restores metadata such as the end-of-line (EOL) sequence using {@link #setEOL(EOLNormalization)}.</li>
      *   <li>Updates the current snapshot reference.</li>
      * </ol>
      * </p>
@@ -2721,7 +2881,7 @@ public class PieceTree {
             // Clear current content & Restore from snapshot
             tree = snapshot.tree;
             bufferManager = snapshot.bufferManager;
-            setEOL(snapshot.eol);
+            setEOL(snapshot.eolNormalization);
             currentSnapshot = snapshot;
         }
     }
@@ -2783,9 +2943,9 @@ public class PieceTree {
         try {
             if (text == null || text.isEmpty()) return;
 
-            if (isNormalizeEOL && !eol.equals("\n") &&
+            if (isNormalizeEOL &&
                     (text.contains("\r\n") || text.contains("\n") || text.contains("\r"))) {
-                text = text.replaceAll(("\r\n|\n|\r"), eol);
+                text = text.replaceAll("(\r\n|\n|\r)", eol);
             }
 
             Node node = tree.findNodeContaining(offset);
@@ -2841,67 +3001,6 @@ public class PieceTree {
             return;
         }
         tree.deleteRange(start, end);
-    }
-
-    /**
-     * Creates a Pattern object based on the provided query and options.
-     *
-     * @param query          The text or regex pattern to search for.
-     * @param useRegex       {@code true} to treat {@code query} as a regular expression;
-     *                       {@code false} for literal string matching.
-     * @param caseSensitive  {@code true} for case-sensitive matching; {@code false} otherwise.
-     * @param wordSeparators String containing characters that define word boundaries.
-     * @param wholeWord      {@code true} to match only complete words; {@code false} for partial matches.
-     * @return A compiled {@link Pattern} object.
-     */
-    private Pattern createPattern(String query, boolean useRegex, boolean caseSensitive,
-                                  String wordSeparators, boolean wholeWord) {
-        int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
-
-        if (useRegex) {
-            return Pattern.compile(query, flags);
-        } else {
-            String escapedQuery = Pattern.quote(query);
-
-            if (wholeWord) {
-                String boundaryPattern;
-                if (wordSeparators != null) {
-                    // For custom separators, quote them to be safe
-                    boundaryPattern = Pattern.quote(wordSeparators);
-                } else {
-                    // Use whitespace and punctuation - don't quote these as they're regex patterns
-                    boundaryPattern = "\\s\\p{Punct}";
-                }
-
-                String wordBoundary = "(?<=^|[" + boundaryPattern + "])" +
-                        escapedQuery +
-                        "(?=$|[" + boundaryPattern + "])";
-                return Pattern.compile(wordBoundary, flags);
-            } else {
-                return Pattern.compile(escapedQuery, flags);
-            }
-        }
-    }
-
-    /**
-     * Extracts the capture groups from a {@link Matcher} object.
-     *
-     * @param matcher       A {@link Matcher} object representing the search result.
-     * @param captureGroups {@code true} to extract regex capture groups; {@code false} otherwise.
-     * @return A list of strings containing the extracted capture groups.
-     */
-    private List<String> extractGroups(Matcher matcher, boolean captureGroups) {
-        List<String> matchGroups = new ArrayList<>();
-
-        if (captureGroups && matcher.groupCount() > 0) {
-            for (int i = 0; i <= matcher.groupCount(); i++) {
-                matchGroups.add(matcher.group(i));
-            }
-        } else {
-            matchGroups.add(matcher.group());
-        }
-
-        return matchGroups;
     }
 
     /**
@@ -3109,12 +3208,13 @@ public class PieceTree {
      * @param description A textual description of the group of operations, which can be
      *                    used for display in UI elements (e.g., "Undo Replace All").
      *                    If null or empty, a default description might be used by the manager.
+     * @return {@code true} if the group was successfully started, {@code false} otherwise.
      * @see UndoRedoManager#beginGroup(String)
      * @see #endGroup()
      * @since 1.0
      */
-    public synchronized void beginGroup(String description) {
-        undoRedoManager.beginGroup(description);
+    public synchronized boolean beginGroup(String description) {
+        return undoRedoManager.beginGroup(description);
     }
 
     /**
@@ -3136,12 +3236,13 @@ public class PieceTree {
      * (typically, it's a no-op or might log a warning).
      * </p>
      *
+     * @return {@code true} if the group was successfully ended, {@code false} otherwise.
      * @see UndoRedoManager#endGroup()
      * @see #beginGroup(String)
      * @since 1.0
      */
-    public synchronized void endGroup() {
-        undoRedoManager.endGroup();
+    public synchronized boolean endGroup() {
+        return undoRedoManager.endGroup();
     }
 
     /**
@@ -3213,13 +3314,13 @@ public class PieceTree {
      * If no operations are available to undo, this method does nothing and returns {@code false}.
      * </p>
      *
-     * @return {@code true} if an operation was successfully undone, {@code false} otherwise (e.g., if the undo stack was empty).
+     * @return {@code BufferPosition} if an operation was successfully undone, {@code -1} otherwise (e.g., if the undo stack was empty).
      * @see UndoRedoManager#undo()
      * @see #canUndo()
      * @see #redo()
      * @since 1.0
      */
-    public synchronized boolean undo() {
+    public synchronized int undo() {
         return undoRedoManager.undo();
     }
 
@@ -3251,7 +3352,7 @@ public class PieceTree {
      * @see #undo()
      * @since 1.0
      */
-    public synchronized boolean redo() {
+    public synchronized int redo() {
         return undoRedoManager.redo();
     }
 

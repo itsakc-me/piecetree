@@ -83,81 +83,83 @@ PieceTree is tailored for Android development, addressing memory limitations:
 ## Project Structure
 The PieceTree library is organized under the `io.itsakc.piecetree` package, with the following key classes:
 
-| **File Name**              | **Description**                                   |
-|----------------------------|---------------------------------------------------|
-| `PieceTree.java`           | Core class for text management and API.           |
-| `BufferManager.java`       | Manages text buffers for memory efficiency.       |
-| `UndoRedoManager.java`     | Handles undo and redo operations with grouping.   |
-| `RedBlackTree.java`        | Implements the Red-Black Tree for piece ordering. |
-| `Position.java`            | Represents a position with line and column.       |
-| `Range.java`               | Represents a text range with start and end.       |
-| `FindMatch.java`           | Represents a search match with details.           |
-| `PieceTreeSnapshot.java`   | Captures document states for snapshots.           |
-| `Node.java`                | Defines the node structure for the Red-Black Tree.|
+| **File Name**            | **Description**                                    |
+|--------------------------|----------------------------------------------------|
+| `PieceTree.java`         | Core class for text management and API.            |
+| `RedBlackTree.java`      | Implements the Red-Black Tree for piece ordering.  |
+| `BufferManager.java`     | Manages text buffers for memory efficiency.        |
+| `UndoRedoManager.java`   | Handles undo and redo operations with grouping.    |
+| `BufferPosition.java`    | Represents a position with line and column.        |
+| `Node.java`              | Defines the node structure for the Red-Black Tree. |
+| `Range.java`             | Represents a range from start and end.             |
+| `FindMatch.java`         | Represents a search match with details.            |
+| `PieceTreeSnapshot.java` | Captures document states for snapshots.            |
 
 ## API Overview
 PieceTree provides a flexible API with methods supporting both line/column coordinates (1-based, for user interfaces) and document offsets (0-based, for efficiency).
-- NOTE: Any offset in API is 0-based and line/column are 1-based.
-- NOTE: API with searching functionalities and doesn't take `wholeWord` parameter, assume it as `true` for the search.
+- ⚠️ Warning - These APIs are just the Blueprint of real ones, so kindly check for Doc-Comments for more info.
 
 ### Initialization
 - `PieceTree()`: Creates a new instance.
-- `initialize(String initialText)`: Initializes with text.
-- `initialize(String initialText, boolean normalizeEOL, EOLNormalization eolNormalization)`: Initializes with text, whether to enable auto `normalize` and set EOL normalization.
-- `initialize(File file)`: Loads text from a file.
-- `initialize(File file, boolean normalizeEOL, EOLNormalization eolNormalization)`: Loads text from a file, whether to enable auto `normalize` and set EOL normalization.
+- `initialize(String)`: Initializes with text.
+- `initialize(String, EOLNormalization)`: Initializes with text, sets EOL normalization.
+- `initialize(File)`: Loads text from a file.
+- `initialize(File, EOLNormalization)`: Loads text from a file, sets EOL normalization.
 
 - `reset()`: Resets the PieceTree to an empty state.
 
 ### Text Manipulation
 - **Append**:
-    - `append(String text)`: Appends text to the document.
+    - `append(String)`: Appends text to the document.
 - **Insert**:
-    - `insert(int lineNumber, int column, String text)`: Inserts at line/column.
-    - `insert(int offset, String text)`: Inserts at offset.
+    - `insert(BufferPosition, String)`: Inserts at position.
+    - `insert(int, String)`: Inserts at offset.
 - **Delete**:
-    - `delete(int startLineNumber, int startColumn, int endLineNumber, int endColumn)`: Deletes a range by line/column.
+    - `delete(BufferPosition, BufferPosition)`: Deletes a range by position.
     - `delete(int startOffset, int endOffset)`: Deletes a range by offset.
 - **Replace**:
-    - `replace(int startLineNumber, int startColumn, int endLineNumber, int endColumn, String replacement)`: Replaces a range by line/column.
-    - `replace(int startOffset, int endOffset, String replacement)`: Replaces a range by offset.
-    - `replace(String regex, String replacement`: Replace the first match of the pattern.
-    - `replace(String regex, boolean wholeWord, String replacement)`: Replace the first match of the pattern while obeying `wholeWord`.
-    - `replace(String query, int startOffset, boolean useRegex, String replacement)`: Replace the first match of query from `startOffset`.
-    - `replace(String query, int startOffset, boolean useRegex, boolean wholeWord, String replacement)`: Replace the first match of query from `startOffset` while obeying `wholeWord`.
-    - `replaceAll(String regex, String replacement, int maxReplace)`: Replaces all matches of the pattern till `maxReplace`.
-    - `replaceAll(String regex, boolean wholeWord, String replacement, int maxReplace)`: Replaces all matches of the pattern till `maxReplace` while obeying `wholeWord`.
-    - `replaceAll(String query, int startOffset, boolean useRegex, String replacement, int maxReplace)`: Replaces all matches of the query from `startOffset` till `maxReplace`.
-    - `replaceAll(String query, int startOffset, boolean useRegex, boolean wholeWord, String replacement, int maxReplace)`: Replaces all matches of the query from `startOffset` till `maxReplace` while obeying `wholeWord`.
+    - `replace(BufferPosition, BufferPosition, String)`: Replaces a range by position.
+    - `replace(int, int, String)`: Replaces a range by offset.
+    - `replace(String, String)`: Replace the first match of the pattern.
+    - `replace(String, boolean, String)`: Replace the first match of the pattern while obeying `wholeWord`.
+    - `replace(String, int, boolean, String)`: Replace the first match of query from `startOffset`.
+    - `replace(String, int, boolean, boolean, String)`: Replace the first match of query from `startOffset` while obeying `wholeWord`.
+    - `replaceAll(String, String, int)`: Replaces all matches of the pattern till `maxReplace`.
+    - `replaceAll(String, boolean, String, int)`: Replaces all matches of the pattern till `maxReplace` while obeying `wholeWord`.
+    - `replaceAll(String, int, boolean, String, int)`: Replaces all matches of the query from `startOffset` till `maxReplace`.
+    - `replaceAll(String, int, boolean, boolean, String, int)`: Replaces all matches of the query from `startOffset` till `maxReplace` while obeying `wholeWord`.
 
 ### Content Retrieval
+- `charAt(BufferPosition)`: Returns the specific `character` on that position.
+- `charAt(int)`: Returns the specific `character` on that offset.
+- `text(EOLNormalization)`: Returns the entire text with the specified EOL sequence.
 - `text()`: Returns the entire text.
-- `text(String eol)`: Returns the entire text with the specified EOL sequence.
-- `lineContent(int lineNumber)`: Returns a specific line.
-- `linesContent(int startLineNumber, int endLineNumber`: Returns a range of lines.
-- `textRange(int startLineNumber, int startColumn, int endLineNumber, int endColumn)`: Retrieves text by line/column.
-- `textRange(int start, int end)`: Retrieves text by offset.
-- `positionAt(int offset)`: Converts offset to line/column.
-- `offsetAt(int lineNumber, int column)`: Converts line/column to offset.
+- `lineContent(int)`: Returns a specific line.
+- `linesContent(int, int)`: Returns a list of lines.
+- `lineRange(int)`: Returns a `range` of the line.
+- `textRange(BufferPosition, BufferPosition)`: Retrieves text by position.
+- `textRange(int, int)`: Retrieves text by offset.
+- `positionAt(int)`: Converts offset to position.
+- `offsetAt(BufferPosition)`: Converts position to offset.
 
 ### Search
-- `findMatches(String query, int startOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, int maxMatch)`: Finds all matches from `startOffset` till `maxMatch`.
-- `findMatches(String query, int startOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord, int maxMatch)`: Finds all matches from `startOffset` till `maxMatch` while obeying `wholeWord`.
-- `findNext(String query, Position startPos, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds next match by position.
-- `findNext(String query, Position startPos, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord)`: Finds next match by position while obeying `wholeWord`.
-- `findNext(String query, int startOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds next match by offset.
-- `findNext(String query, int startOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord)`: Finds next match by offset while obeying `wholeWord`.
-- `findPrevious(String query, Position endPos, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds previous match by position.
-- `findPrevious(String query, Position endPos, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord)`: Finds previous match by position while obeying `wholeWord`.
-- `findPrevious(String query, int endOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups)`: Finds previous match by offset.
-- `findPrevious(String query, int endOffset, boolean useRegex, boolean caseSensitive, String wordSeparators, boolean captureGroups, boolean wholeWord)`: Finds previous match by offset while obeying `wholeWord`.
+- `findMatches(String, int, boolean, boolean, String, boolean, int)`: Finds all matches from `startOffset` till `maxMatch`.
+- `findMatches(String, int, boolean, boolean, String, boolean, boolean, int)`: Finds all matches from `startOffset` till `maxMatch` while obeying `wholeWord`.
+- `findNext(String, Position, boolean, boolean, String, boolean)`: Finds next match by position.
+- `findNext(String, Position, boolean, boolean, String, boolean, boolean)`: Finds next match by position while obeying `wholeWord`.
+- `findNext(String, int, boolean, boolean, String, boolean)`: Finds next match by offset.
+- `findNext(String, int, boolean, boolean, String, boolean, boolean)`: Finds next match by offset while obeying `wholeWord`.
+- `findPrevious(String, Position, boolean, boolean, String, boolean)`: Finds previous match by position.
+- `findPrevious(String, Position, boolean, boolean, String, boolean, boolean)`: Finds previous match by position while obeying `wholeWord`.
+- `findPrevious(String, int, boolean, boolean, String, boolean)`: Finds previous match by offset.
+- `findPrevious(String, int, boolean, boolean, String, boolean, boolean)`: Finds previous match by offset while obeying `wholeWord`.
 
 ### Undo/Redo
 - `getUndoRedoManager()`: Returns the UndoRedoManager.
-- `setUndoRedoManager(UndoRedoManager undoRedoManager)`: Sets the UndoRedoManager for current PieceTree.
+- `setUndoRedoManager(UndoRedoManager)`: Sets the UndoRedoManager for current PieceTree.
 - `undo()`: Reverts the last operation.
 - `redo()`: Reapplies the last undone operation.
-- `beginGroup(String description)`: Groups operations for a single undo/redo.
+- `beginGroup(String)`: Groups operations for a single undo/redo.
 - `endGroup()`: Ends grouping.
 - `canUndo()`: Checks if undo is possible.
 - `canRedo()`: Checks if redo is possible.
@@ -166,20 +168,20 @@ PieceTree provides a flexible API with methods supporting both line/column coord
 - `clear()`:  Clears the UndoRedoManager for the current PieceTree.
 - `getUndoSize()`: Returns the size of undo stack.
 - `getRedoSize()`: Returns the size of redo stack.
-- `setMaxUndoLevels(int maxLevels)`: Sets the maximum number of undo levels.
+- `setMaxUndoLevels(int)`: Sets the maximum number of undo levels.
 - `getMaxUndoLevels()`: Returns the maximum number of undo levels.
-- `addUndoRedoListener(UndoRedoManager.UndoRedoListener listener)`: Adds a listener for undo/redo events.
-- `removeUndoRedoListener(UndoRedoManager.UndoRedoListener listener)`: Removes a listener from the List of UndoRedoManager.
+- `addUndoRedoListener(UndoRedoManager.UndoRedoListener)`: Adds a listener for undo/redo events.
+- `removeUndoRedoListener(UndoRedoManager.UndoRedoListener)`: Removes a listener from the List of UndoRedoManager.
 
 ### Snapshots
 - `createSnapshot()`: Captures the current state.
-- `restoreSnapshot(PieceTreeSnapshot snapshot)`: Restores a snapshot.
+- `restoreSnapshot(PieceTreeSnapshot)`: Restores a snapshot.
 
 ### EOL Management
 - `getEOL()`: Returns the current EOL sequence.
-- `setEOL(String eol)`: Sets the EOL sequence.
+- `setEOL(EOLNormalization)`: Sets the EOL sequence.
 - `isNormalizeEOL()`: Returns whether EOL normalization is enabled.
-- `setNormalizeEOL(boolean normalizeEOL)`: Enables or disables EOL normalization.
+- `setNormalizeEOL(boolean)`: Enables or disables EOL normalization.
 
 ## Usage Examples
 
